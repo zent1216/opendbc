@@ -3,8 +3,9 @@ import copy
 import math
 
 from opendbc.can import CANDefine, CANParser
-from opendbc.car import Bus, create_button_events, structs
+from opendbc.car import Bus, DT_CTRL, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car.hyundai.junpilot_navi import Pv5Navi, message_fresh
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, CAR, DBC, Buttons, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
@@ -19,6 +20,10 @@ STANDSTILL_THRESHOLD = 12 * 0.03125
 ENABLE_BUTTONS = (Buttons.RES_ACCEL, Buttons.SET_DECEL, Buttons.CANCEL)
 BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: ButtonType.decelCruise,
                 Buttons.GAP_DIST: ButtonType.gapAdjustCruise, Buttons.CANCEL: ButtonType.cancel}
+
+
+PV5_HDA_MSG = "CANFD_HDA_INFO_364"
+PV5_STATUS_MSG = "CANFD_NAVI_STATUS_380"
 
 
 class CarState(CarStateBase):
@@ -54,6 +59,7 @@ class CarState(CarStateBase):
                                  "CRUISE_BUTTONS"
     self.is_metric = False
     self.buttons_counter = 0
+    self.jp_navi = Pv5Navi() if CP.carFingerprint == CAR.KIA_PV5 else None
 
     self.cruise_info = {}
 
@@ -291,6 +297,15 @@ class CarState(CarStateBase):
 
     ret.blockPcmEnable = not self.recent_button_interaction()
 
+    # 준파일럿: PV5 순정 내비 단속 정보
+    if self.jp_navi is not None and Bus.alt in can_parsers:
+      cp_alt = can_parsers[Bus.alt]
+      now = cp._last_update_nanos
+      kind, limit = self.jp_navi.update(cp.vl[PV5_HDA_MSG], message_fresh(cp, PV5_HDA_MSG, now),
+                                        cp_alt.vl[PV5_STATUS_MSG], message_fresh(cp_alt, PV5_STATUS_MSG, now),
+                                        ret.vEgo, DT_CTRL)
+      ret.junpilotNaviKind, ret.junpilotNaviLimit = kind, limit
+
     return ret
 
   def get_can_parsers_canfd(self, CP):
@@ -301,10 +316,17 @@ class CarState(CarStateBase):
         # this message is 50Hz but the ECU frequently stops transmitting for ~0.5s
         ("CRUISE_BUTTONS", 1)
       ]
-    return {
+    pv5 = CP.carFingerprint == CAR.KIA_PV5
+    if pv5:
+      # 준파일럿: 순정 내비 단속 정보. 없어도 CAN 오류가 나지 않도록 생존 검사 제외(nan)
+      msgs.append((PV5_HDA_MSG, math.nan))
+    parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, CanBus(CP).ECAN),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).CAM),
     }
+    if pv5:
+      parsers[Bus.alt] = CANParser(DBC[CP.carFingerprint][Bus.pt], [(PV5_STATUS_MSG, math.nan)], CanBus(CP).ACAN)
+    return parsers
 
   def get_can_parsers(self, CP):
     if CP.flags & HyundaiFlags.CANFD:

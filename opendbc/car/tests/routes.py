@@ -21,6 +21,7 @@ from opendbc.car.mg.values import CAR as MG
 
 # FIXME: add routes for these cars
 non_tested_cars = [
+  HYUNDAI.KIA_PV5,  # 준파일럿: 아직 테스트 경로 없음
   MOCK.MOCK,
   GM.CADILLAC_ATS,
   GM.HOLDEN_ASTRA,

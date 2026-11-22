@@ -100,6 +100,9 @@ class TestHyundaiFingerprint(unittest.TestCase):
     for car_model in CAR:
       if not (car_model.config.flags & HyundaiFlags.CANFD):
         continue
+      # 준파일럿: PV5는 펌웨어 값이 아직 없음 (빈 항목은 모든 차에 매칭되므로 넣지 않음)
+      if car_model not in FW_VERSIONS:
+        continue
       ecus = {fw[0] for fw in FW_VERSIONS[car_model].keys()}
       ecus_not_in_whitelist = ecus - CANFD_EXPECTED_ECUS
       ecu_strings = ", ".join([f"Ecu.{ecu}" for ecu in ecus_not_in_whitelist])

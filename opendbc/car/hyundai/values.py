@@ -553,6 +553,14 @@ class CAR(Platforms):
     CarSpecs(wheelbase=2.9, steerRatio=16, tireStiffnessFactor=0.65),
     flags=HyundaiFlags.EV,
   )
+  # 준파일럿: 당근파일럿(ajouatom)의 PV5 정의를 이식. 하네스는 실사용자 보고 기준 A 타입(당근파일럿 표기는 N).
+  KIA_PV5 = HyundaiCanFDPlatformConfig(
+    [
+      HyundaiCarDocs("Kia PV5 (SW1) 2025-26", car_parts=CarParts.common([CarHarness.hyundai_a])),
+    ],
+    CarSpecs(wheelbase=2.995, steerRatio=16.0, tireStiffnessFactor=0.65),
+    flags=HyundaiFlags.EV,
+  )
   KIA_CARNIVAL_4TH_GEN = HyundaiCanFDPlatformConfig(
     [
       HyundaiCarDocs("Kia Carnival 2022-24", car_parts=CarParts.common([CarHarness.hyundai_a])),

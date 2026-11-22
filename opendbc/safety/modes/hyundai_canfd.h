@@ -161,8 +161,11 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
     uint8_t button = msg->data[2] & 0x7U;
     bool is_cancel = (button == HYUNDAI_BTN_CANCEL);
     bool is_resume = (button == HYUNDAI_BTN_RESUME);
+    // junpilot: SET- (lower stock SCC set speed) only while stock cruise is engaged and controls are allowed
+    bool is_set = (button == HYUNDAI_BTN_SET);
 
-    bool allowed = (is_cancel && safety.cruise_engaged_prev) || (is_resume && safety.controls_allowed);
+    bool allowed = (is_cancel && safety.cruise_engaged_prev) || (is_resume && safety.controls_allowed) ||
+                   (is_set && safety.controls_allowed && safety.cruise_engaged_prev);
     if (!allowed) {
       tx = false;
     }

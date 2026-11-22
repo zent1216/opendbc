@@ -21,6 +21,7 @@ ALL_GAS_EV_HYBRID_COMBOS = [
 
 
 class TestHyundaiCanfdBase(HyundaiButtonBase, common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest):
+  JUNPILOT_SET_ALLOWED = True
 
   DBC = "hyundai_canfd_generated"
   SAFETY_MODEL = CarParams.SafetyModel.hyundaiCanfd

@@ -390,6 +390,7 @@ struct CarControl {
     cancel @0: Bool;
     resume @1: Bool;
     override @4: Bool;
+    junpilotTargetSpeed @5: Float32;  # 준파일럿: 순정 크루즈 목표 설정속도 (m/s, 0이면 사용 안 함)
 
     deprecated :group {
       speedOverride @2: Float32;

@@ -3,6 +3,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
 from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car.hyundai.junpilot_buttons import JunpilotButtonFollower, BURST as JP_BURST
 from opendbc.car.hyundai import hyundaicanfd, hyundaican
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, Buttons, CarControllerParams, CAR
@@ -60,6 +61,7 @@ class CarController(CarControllerBase):
     self.apply_torque_last = 0
     self.car_fingerprint = CP.carFingerprint
     self.last_button_frame = 0
+    self.jp_buttons = JunpilotButtonFollower(is_metric=True)  # 준파일럿: 한국 km/h 기준
     self.cancel_counter = 0
 
   def update(self, CC, CS, now_nanos):
@@ -225,5 +227,17 @@ class CarController(CarControllerBase):
             for _ in range(20):
               can_sends.append(hyundaicanfd.create_buttons(self.packer, self.CP, self.CAN, CS.buttons_counter + 1, Buttons.RES_ACCEL))
             self.last_button_frame = self.frame
+
+      # 준파일럿: 순정 크루즈 설정속도를 목표값으로 맞춤 (취소/재개 버튼을 보낼 때는 쉼)
+      if not (self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS):
+        busy = CC.cruiseControl.cancel or CC.cruiseControl.resume
+        btn = self.jp_buttons.update(0.0 if busy or not CC.enabled else CC.cruiseControl.junpilotTargetSpeed,
+                                     CS.out.cruiseState.speedCluster or CS.out.cruiseState.speed,
+                                     CS.out.cruiseState.enabled, CS.out.cruiseState.standstill,
+                                     CS.cruise_buttons[-1] != Buttons.NONE, CS.out.gasPressed or CS.out.brakePressed)
+        if btn != Buttons.NONE:
+          for _ in range(JP_BURST):
+            can_sends.append(hyundaicanfd.create_buttons(self.packer, self.CP, self.CAN, CS.buttons_counter + 1, btn))
+          self.last_button_frame = self.frame
 
     return can_sends

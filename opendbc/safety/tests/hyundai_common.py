@@ -19,6 +19,7 @@ ENABLE_BUTTONS = (Buttons.RESUME, Buttons.SET, Buttons.CANCEL)
 class HyundaiButtonBase(common.CarSafetyTest):
   BUTTONS_TX_BUS = 0  # tx on this bus, rx on 0
   SCC_BUS = 0  # rx on this bus
+  JUNPILOT_SET_ALLOWED = False  # junpilot: SET- allowed while cruise engaged (CAN FD only)
 
   _button_msg: Callable[..., libsafety_py.CANPacket]
 
@@ -34,6 +35,16 @@ class HyundaiButtonBase(common.CarSafetyTest):
 
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._button_msg(Buttons.RESUME, bus=self.BUTTONS_TX_BUS)))
+    self.assertFalse(self._tx(self._button_msg(Buttons.SET, bus=self.BUTTONS_TX_BUS)))
+
+    # junpilot: SET- only with cruise engaged and controls allowed
+    self._rx(self._pcm_status_msg(True))
+    self.safety.set_controls_allowed(1)
+    self.assertEqual(self.JUNPILOT_SET_ALLOWED, self._tx(self._button_msg(Buttons.SET, bus=self.BUTTONS_TX_BUS)))
+    self.safety.set_controls_allowed(0)
+    self.assertFalse(self._tx(self._button_msg(Buttons.SET, bus=self.BUTTONS_TX_BUS)))
+    self._rx(self._pcm_status_msg(False))
+    self.safety.set_controls_allowed(1)
     self.assertFalse(self._tx(self._button_msg(Buttons.SET, bus=self.BUTTONS_TX_BUS)))
 
     for enabled in (True, False):

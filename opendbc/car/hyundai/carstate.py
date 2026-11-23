@@ -269,6 +269,7 @@ class CarState(CarStateBase):
       ret.cruiseState.enabled = cp_cruise_info.vl["SCC_CONTROL"]["ACCMode"] in (1, 2)
       ret.cruiseState.standstill = cp_cruise_info.vl["SCC_CONTROL"]["CRUISE_STANDSTILL"] == 1
       ret.cruiseState.speed = cp_cruise_info.vl["SCC_CONTROL"]["VSetDis"] * speed_factor
+      ret.junpilotCruiseGap = int(min(max(cp_cruise_info.vl["SCC_CONTROL"]["DISTANCE_SETTING"], 1), 4))  # 준파일럿 화면 표시용
       self.cruise_info = copy.copy(cp_cruise_info.vl["SCC_CONTROL"])
 
     # Manual Speed Limit Assist is a feature that replaces non-adaptive cruise control on EV CAN FD platforms.

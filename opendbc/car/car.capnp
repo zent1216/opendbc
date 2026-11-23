@@ -300,6 +300,7 @@ struct CarState {
   # 준파일럿: 차량 순정 내비 단속 정보 (0이면 없음)
   junpilotNaviLimit @62 :Float32;  # m/s
   junpilotNaviKind @63 :UInt8;     # 1=과속카메라, 2=구간단속
+  junpilotCruiseGap @64 :UInt8;    # 순정 크루즈 차간거리 단계 (1~4, 0이면 모름)
 }
 
 # ******* radar state @ 20hz *******

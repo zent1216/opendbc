@@ -3,7 +3,6 @@ from opendbc.can import CANParser
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai import junpilot_navi as jn
-from opendbc.car.hyundai.carstate import PV5_HDA_MSG, PV5_STATUS_MSG
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import CAR
 

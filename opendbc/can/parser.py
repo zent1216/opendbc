@@ -200,7 +200,8 @@ class CANParser:
     if invalid_messages and (self._last_invalid_log_nanos is None or
                              self._last_update_nanos - self._last_invalid_log_nanos >= 10_000_000_000):
       messages = ', '.join(f"{hex(addr)} {self.message_states[addr].name}" for addr in sorted(invalid_messages))
-      carlog.warning(f"CANParser: bus {self.bus} not valid (timeout or missing): {messages}")
+      carlog.error(  # 준파일럿: 요약 로그(qlog)에도 남도록
+        f"CANParser: bus {self.bus} not valid (timeout or missing): {messages}")
       self._last_invalid_log_nanos = self._last_update_nanos
 
     # TODO: probably only want to increment this once per update() call

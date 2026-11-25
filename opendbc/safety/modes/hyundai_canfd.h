@@ -140,10 +140,11 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
     // 1=enabled, 2=driver override
     uint8_t cruise_status = (msg->data[8] >> 4) & 0x7U;
     bool cruise_engaged = (cruise_status == 1U) || (cruise_status == 2U);
-    if (safety_setup.hyundai_canfd_junpilot_pv5 && cruise_engaged && !safety.cruise_engaged_prev) {
-      safety.junpilot_lat_allowed = true;  // keep steering after brake/cancel (lateral-only)
-    }
     hyundai_common_cruise_state_check(cruise_engaged);
+    // junpilot (PV5): once stock cruise legitimately allows controls, keep steering after brake/cancel (lateral-only)
+    if (safety_setup.hyundai_canfd_junpilot_pv5 && cruise_engaged && safety.controls_allowed) {
+      safety.junpilot_lat_allowed = true;
+    }
   }
 }
 

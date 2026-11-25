@@ -195,6 +195,12 @@ static bool rx_hook_copy(const CANPacket_t *msg) {
   // Handles gas, brake, and regen paddle
   generic_rx_checks();
 
+  // junpilot: lateral-only mode (PV5 LFA button) keeps controls allowed through brake presses and cruise cancel.
+  // It is only set by the PV5 safety mode, and is cleared together with controls_allowed on invalid rx and heartbeat timeout.
+  if (safety.junpilot_lat_allowed && valid) {
+    safety.controls_allowed = true;
+  }
+
   // the relay malfunction hook runs on all incoming rx messages.
   // check all applicable tx msgs for liveness on sending bus.
   // used to detect a relay malfunction or control messages from disabled ECUs like the radar

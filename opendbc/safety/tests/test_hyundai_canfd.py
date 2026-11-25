@@ -2,7 +2,8 @@
 from opendbc.testing import parameterized_class
 import unittest
 
-from opendbc.car.hyundai.values import HyundaiSafetyFlags
+from opendbc.car.hyundai.values import HyundaiSafetyFlags, Buttons
+RES_BTN = Buttons.RES_ACCEL
 from opendbc.car.structs import CarParams
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.libsafety import libsafety_py
@@ -307,6 +308,24 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
       msg = self.packer.make_can_msg_safety("ACCELERATOR", self.PT_BUS, {"COUNTER": (i * 2) & 0xff, "ACCELERATOR_PEDAL": 0})
       self.assertTrue(self._rx(msg))
 
+  # junpilot: on PV5, stock cruise engaging also starts lateral-only mode, which survives cruise cancel/brake.
+  # The generic tests below assume cruise off always ends controls, so they are replaced with PV5 behavior.
+  def test_enable_control_allowed_from_cruise(self):
+    self._rx(self._pcm_status_msg(False))
+    self.assertFalse(self.safety.get_controls_allowed())
+    self._rx(self._button_msg(RES_BTN))
+    self._rx(self._pcm_status_msg(True))
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self.safety.get_junpilot_lat_allowed())
+    self._rx(self._pcm_status_msg(False))
+    self.assertTrue(self.safety.get_controls_allowed())  # steering kept after cruise cancel
+
+  def test_sampling_cruise_buttons(self):
+    self._rx(self._pcm_status_msg(False))
+    self._rx(self._pcm_status_msg(True))
+    self.assertFalse(self.safety.get_controls_allowed())  # no recent button press -> not allowed
+    self.assertFalse(self.safety.get_junpilot_lat_allowed())
+
   def _lfa_msg(self, pressed):
     dat = bytearray(16)
     dat[10] = 0x80 if pressed else 0
@@ -319,12 +338,13 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
     self._rx(self._lfa_msg(True))
     self._rx(self._lfa_msg(False))
     self.assertTrue(self.safety.get_junpilot_lat_allowed())
-    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertTrue(self.safety.get_controls_allowed())  # openpilot sees it as engaged (no controls mismatch)
     self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=1)))
     # brake does not end lateral-only
     self._rx(self._user_brake_msg(True))
     self._rx(self._user_brake_msg(False))
     self.assertTrue(self.safety.get_junpilot_lat_allowed())
+    self.assertTrue(self.safety.get_controls_allowed())
     # openpilot not engaged for a few heartbeats -> cleared
     for _ in range(4):
       self.safety.set_timer(0)

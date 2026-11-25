@@ -75,3 +75,12 @@ def test_pv5_parser_accepts_counter_step_2():
     dat[0], dat[1] = cs & 0xff, cs >> 8
     pt.update([(int(1e9 + i * 4e7), [CanData(0x10b, bytes(dat), 0)])])
   assert pt.message_states[0x10b].counter_fail == 0
+
+
+def test_pv5_angle_control_params():
+  """각도 조향 차는 토크 튜닝을 쓰면 안 됨 (controlsd가 각도 제어기에 토크 파라미터를 넣다가 멈춘 적 있음)."""
+  from opendbc.car import structs
+  from opendbc.car.hyundai.interface import CarInterface
+  CP = CarInterface.get_params("KIA_PV5", {b: {} for b in range(8)}, [], False, False, False)
+  assert CP.steerControlType == structs.CarParams.SteerControlType.angle
+  assert CP.lateralTuning.which() != "torque"

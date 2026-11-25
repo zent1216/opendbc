@@ -117,9 +117,11 @@ class CarInterface(CarInterfaceBase):
     ret.centerToFront = ret.wheelbase * 0.4
     ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 0.4
-    CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
     if ret.flags & HyundaiFlags.ANGLE_CONTROL:
-      ret.steerControlType = structs.CarParams.SteerControlType.angle  # 준파일럿: 각도 조향
+      # 준파일럿: 각도 조향 차는 토크 튜닝을 쓰지 않음 (토크 튜닝이 있으면 controlsd가 토크 파라미터를 각도 제어기에 넣다가 멈춤)
+      ret.steerControlType = structs.CarParams.SteerControlType.angle
+    else:
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     if ret.flags & HyundaiFlags.ALT_LIMITS:
       ret.safetyConfigs[-1].safetyParam |= HyundaiSafetyFlags.ALT_LIMITS.value

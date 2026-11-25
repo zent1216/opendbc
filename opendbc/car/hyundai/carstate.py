@@ -24,7 +24,7 @@ BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: Bu
 
 PV5_HDA_MSG = "CANFD_HDA_INFO_364"
 PV5_STATUS_MSG = "CANFD_NAVI_STATUS_380"
-PV5_NO_COUNTER = ("ACCELERATOR", "MANUAL_SPEED_LIMIT_ASSIST")
+PV5_NO_COUNTER = ("ACCELERATOR", "MANUAL_SPEED_LIMIT_ASSIST", "CRUISE_BUTTONS_ALT2")  # 카운터가 2씩 증가
 
 
 class CarState(CarStateBase):
@@ -351,8 +351,10 @@ class CarState(CarStateBase):
       # 준파일럿: PV5는 이 두 메시지의 카운터가 규칙대로 늘지 않음 (실차 rlog 확인, 당근파일럿도 카운터 검사 제외)
       pt = parsers[Bus.pt]
       for name in PV5_NO_COUNTER:
-        pt._add_message(name)
-        pt.message_states[pt.dbc.name_to_msg[name].address].ignore_counter = True
+        addr = pt.dbc.name_to_msg[name].address
+        if addr not in pt.addresses:
+          pt._add_message(name)
+        pt.message_states[addr].ignore_counter = True
     return parsers
 
   def get_can_parsers(self, CP):

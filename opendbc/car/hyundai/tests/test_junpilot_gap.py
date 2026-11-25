@@ -59,3 +59,19 @@ def test_gap_setter_stops_after_driver_touch():
 def test_gap_setter_max_presses():
   g = JunpilotGapSetter()
   assert _run(g, 3000, want_gap=2, cur_gap=4, cruise_enabled=True, driver_gap_pressed=False) == GAP_MAX_PRESSES
+
+
+def test_pv5_parser_accepts_counter_step_2():
+  """실차 PV5 0x10B 카운터는 2씩 증가. 카운터 검사를 하면 CAN 오류(알 수 없는 차량 사양)가 난다."""
+  from opendbc.car.hyundai.interface import CarInterface
+  from opendbc.car.hyundai.carstate import CarState
+  CP = CarInterface.get_params("KIA_PV5", {b: {} for b in range(8)}, [], False, False, False)
+  ps = CarState(CP).get_can_parsers(CP)
+  pt = ps[Bus.pt]
+  for i in range(40):
+    dat = bytearray(REAL)
+    dat[2] = (i * 2) & 0xff
+    cs = hkg_can_fd_checksum(0x10b, None, dat)
+    dat[0], dat[1] = cs & 0xff, cs >> 8
+    pt.update([(int(1e9 + i * 4e7), [CanData(0x10b, bytes(dat), 0)])])
+  assert pt.message_states[0x10b].counter_fail == 0

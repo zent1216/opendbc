@@ -301,6 +301,9 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
   GAS_MSG = ("ACCELERATOR", "ACCELERATOR_PEDAL")
   SCC_BUS = 2
   EXTRA_SAFETY_PARAM = HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC | HyundaiSafetyFlags.JUNPILOT_PV5
+  TX_MSGS = [[0x12A, 0], [0x1A0, 1], [0x1CF, 0], [0x1E0, 0], [0xCB, 0], [0x10B, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x12A, 0x1E0, 0xCB)}  # LFA, LFAHDA_CLUSTER, LFA_ALT (angle)
+  FWD_BLACKLISTED_ADDRS = {2: [0x12A, 0x1E0, 0xCB]}
 
   def test_pv5_accelerator_counter_step_2(self):
     self.safety.set_controls_allowed(True)
@@ -381,3 +384,68 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
           expected = cruise and allowed and btn in (1, 2, 3)
           self.assertEqual(expected, btn_tx(btn), (cruise, allowed, btn))
           self.assertFalse(btn_tx(btn, lfa=True))
+
+  # ---- junpilot: angle steering (LFA_ALT 0xCB) ----
+  def _speed_msg_pv5(self, kph):
+    self.__class__.cnt_whl = (getattr(self.__class__, "cnt_whl", 0) + 1) % 256
+    values = {f"WHL_Spd{w}Val": kph for w in ("FL", "FR", "RL", "RR")}
+    values["COUNTER"] = self.cnt_whl
+    return self.packer.make_can_msg_safety("WHEEL_SPEEDS", self.PT_BUS, values)
+
+  def _angle_meas_msg(self, deg):
+    self.__class__.cnt_angle_meas = (getattr(self.__class__, "cnt_angle_meas", 0) + 1) % 256
+    return self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEERING_ANGLE": deg, "COUNTER": self.cnt_angle_meas})
+
+  def _lfa_alt_msg(self, deg, active):
+    return self.packer.make_can_msg_safety("LFA_ALT", 0, {"ADAS_ActvACISta": 0, "ADAS_ActvACILvl2Sta": 2 if active else 1,
+                                                          "ADAS_StrAnglReqVal": deg, "ADAS_ACIAnglTqRedcGainVal": 0.9 if active else 0})
+
+  def _set_meas(self, deg):
+    for _ in range(6):
+      self._rx(self._angle_meas_msg(deg))
+
+  def test_pv5_angle_not_allowed_without_controls(self):
+    self._rx(self._speed_msg_pv5(50))
+    self._set_meas(0)
+    self.safety.set_controls_allowed(False)
+    self.assertFalse(self._tx(self._lfa_alt_msg(0, True)))
+    self.assertTrue(self._tx(self._lfa_alt_msg(0, False)))   # ready, at the measured angle
+    self.assertFalse(self._tx(self._lfa_alt_msg(10, False)))  # inactive must follow the measured angle
+
+  def test_pv5_angle_rate_and_accel_limits(self):
+    for _ in range(6):
+      self._rx(self._speed_msg_pv5(80))
+    self._set_meas(0)
+    self.safety.set_controls_allowed(True)
+    self.assertTrue(self._tx(self._lfa_alt_msg(0, True)))
+    self.assertTrue(self._tx(self._lfa_alt_msg(0.1, True)))   # small step ok
+    self.assertFalse(self._tx(self._lfa_alt_msg(10, True)))   # big jump at 80 km/h blocked
+    self.safety.set_controls_allowed(True)
+    self._set_meas(0)
+    self.assertTrue(self._tx(self._lfa_alt_msg(0, True)))
+    # ramp to a large angle at highway speed: lateral accel limit eventually blocks it
+    ok = True
+    deg = 0.0
+    for _ in range(3000):
+      deg += 0.05
+      ok = self._tx(self._lfa_alt_msg(deg, True))
+      if not ok:
+        break
+    self.assertFalse(ok)
+    self.assertLess(deg, 30)
+
+  def test_pv5_angle_bad_state_blocked(self):
+    self._set_meas(0)
+    self.safety.set_controls_allowed(True)
+    for aci, lvl2 in ((1, 2), (0, 0), (0, 3), (5, 1)):
+      msg = self.packer.make_can_msg_safety("LFA_ALT", 0, {"ADAS_ActvACISta": aci, "ADAS_ActvACILvl2Sta": lvl2, "ADAS_StrAnglReqVal": 0})
+      self.assertFalse(self._tx(msg), (aci, lvl2))
+
+  def test_pv5_lat_only_allows_angle(self):
+    for _ in range(6):
+      self._rx(self._speed_msg_pv5(50))
+    self._set_meas(0)
+    self.safety.set_controls_allowed(False)
+    self._rx(self._lfa_msg(True))
+    self._rx(self._lfa_msg(False))
+    self.assertTrue(self._tx(self._lfa_alt_msg(0, True)))

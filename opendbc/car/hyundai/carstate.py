@@ -36,6 +36,7 @@ class CarState(CarStateBase):
     self.main_buttons: deque = deque([Buttons.NONE] * PREV_BUTTON_SAMPLES, maxlen=PREV_BUTTON_SAMPLES)
     self.lda_button = 0
     self.pv5_btn_msg = None  # 준파일럿: PV5 0x10B 마지막 값 (버튼 대신 누르기용)
+    self.lfa_alt = None  # 준파일럿: 카메라의 각도 조향 요청(LFA_ALT 0xCB) 마지막 값
 
     self.gear_msg_canfd = "ACCELERATOR" if CP.flags & HyundaiFlags.EV else \
                           "GEAR_ALT" if CP.flags & HyundaiFlags.CANFD_ALT_GEARS else \
@@ -308,6 +309,8 @@ class CarState(CarStateBase):
     self.buttons_counter = cp.vl[self.cruise_btns_msg_canfd]["COUNTER"]
     ret.accFaulted = cp.vl["TCS"]["ACCEnable"] != 0  # 0 ACC CONTROL ENABLED, 1-3 ACC CONTROL DISABLED
 
+    if self.CP.flags & HyundaiFlags.ANGLE_CONTROL:
+      self.lfa_alt = copy.copy(cp_cam.vl["LFA_ALT"])
     if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
       self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x362"] if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT
                                           else cp_cam.vl["CAM_0x2a4"])
@@ -344,7 +347,8 @@ class CarState(CarStateBase):
       msgs.append(("CRUISE_BUTTONS_ALT2", math.nan))
     parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, CanBus(CP).ECAN),
-      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).CAM),
+      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt],
+                         [("LFA_ALT", math.nan)] if CP.flags & HyundaiFlags.ANGLE_CONTROL else [], CanBus(CP).CAM),
     }
     if pv5:
       parsers[Bus.alt] = CANParser(DBC[CP.carFingerprint][Bus.pt], [(PV5_STATUS_MSG, math.nan)], CanBus(CP).ACAN)

@@ -50,6 +50,7 @@
   {.msg = {{0xea, (pt_bus), 24, 100U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                       \
   {.msg = {{0x1aa, (pt_bus), 16, 50U, .ignore_checksum = true, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},             \
   {.msg = {{0x10b, (pt_bus), 16, 25U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},           \
+  {.msg = {{0x125, (pt_bus), 16, 100U, .ignore_checksum = true, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},              \
 
 // SCC_CONTROL (from ADAS unit or camera)
 #define HYUNDAI_CANFD_SCC_ADDR_CHECK(scc_bus)                                                                            \
@@ -99,6 +100,11 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
     hyundai_common_cruise_buttons_check(cruise_button, main_button);
   }
 
+  // junpilot (PV5, angle steering): measured steering angle, STEERING_SENSORS 0x125, 0.1 deg per bit
+  if (safety_setup.hyundai_canfd_junpilot_pv5 && msg_matches(msg, 0x125U, pt_bus)) {
+    update_sample(&safety.angle_meas, to_signed(GET_BYTES_LE(msg, 3, 2), 16));
+  }
+
   // junpilot (PV5): cruise buttons live in CRUISE_BUTTONS_ALT2 (0x10B) byte 10 low nibble, not in 0x1AA
   // 1=RES_ACCEL, 2=SET_DECEL, 3=GAP_DIST, 8=cruise main toggle (confirmed on a real car)
   if (safety_setup.hyundai_canfd_junpilot_pv5 && msg_matches(msg, 0x10bU, pt_bus)) {
@@ -141,6 +147,12 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
     uint32_t rr = (GET_BYTES_LE(msg, 14, 2)) & 0x3FFFU;
     safety.vehicle_moving = (fl > HYUNDAI_STANDSTILL_THRSLD) || (fr > HYUNDAI_STANDSTILL_THRSLD) ||
                      (rl > HYUNDAI_STANDSTILL_THRSLD) || (rr > HYUNDAI_STANDSTILL_THRSLD);
+    // junpilot (PV5, angle steering): vehicle speed for the vehicle-model angle limits (0.03125 km/h per bit)
+    if (safety_setup.hyundai_canfd_junpilot_pv5) {
+      const uint32_t wheel_sum = fl + fr + rl + rr;
+      const float wheel_sum_f = (float)wheel_sum;
+      UPDATE_VEHICLE_SPEED(wheel_sum_f / 4.0f * 0.03125f / 3.6f);
+    }
   }
 
   // cruise state
@@ -198,6 +210,31 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
     bool allowed = (is_cancel && safety.cruise_engaged_prev) || (is_resume && safety.controls_allowed) ||
                    (is_set && safety.controls_allowed && safety.cruise_engaged_prev);
     if (!allowed) {
+      tx = false;
+    }
+  }
+
+  // junpilot (PV5): angle steering command LFA_ALT (0xCB) replaces the camera's (blocked by check_relay).
+  // ADAS_ActvACILvl2Sta: 2 = steering, 1 = ready. Angle is ADAS_StrAnglReqVal (14 bit signed, 0.1 deg).
+  if (msg->addr == 0xCBU) {
+    const AngleSteeringLimits PV5_ANGLE_LIMITS = {
+      .max_angle = 1199,  // 119.9 deg, signal limit
+      .angle_deg_to_can = 10.f,
+      .frequency = 100U,
+    };
+    // NOTE: must match openpilot's VehicleModel for KIA_PV5
+    const AngleSteeringParams PV5_ANGLE_PARAMS = {
+      .slip_factor = -0.0008615807f,  // calc_slip_factor(VM)
+      .steer_ratio = 16.f,
+      .wheelbase = 2.995f,
+    };
+    const uint8_t aci_sta = msg->data[3] & 0xFU;
+    const uint8_t lvl2_sta = (msg->data[3] >> 4) & 0xFU;
+    const int desired_angle = to_signed(GET_BYTES_LE(msg, 4, 2) & 0x3FFFU, 14);
+    const bool steer_control_enabled = (lvl2_sta == 2U);
+    const bool valid_state = (aci_sta == 0U) && ((lvl2_sta == 1U) || (lvl2_sta == 2U));
+    if (!safety_setup.hyundai_canfd_junpilot_pv5 || !valid_state ||
+        steer_angle_cmd_checks_vm(desired_angle, steer_control_enabled, PV5_ANGLE_LIMITS, PV5_ANGLE_PARAMS)) {
       tx = false;
     }
   }
@@ -404,6 +441,7 @@ static safety_config hyundai_canfd_init(uint16_t param) {
       static const CanMsg hyundai_canfd_pv5_tx_msgs[] = {
         HYUNDAI_CANFD_LFA_STEERING_CAMERA_SCC_TX_MSGS(false)
         {0x10B, 2, 16, .check_relay = false},
+        {0xCB, 0, 24, .check_relay = true},  // LFA_ALT, angle steering (camera's is blocked)
       };
 
       if (junpilot_pv5) {

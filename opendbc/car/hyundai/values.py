@@ -7,6 +7,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.structs import CarParams
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, p16
+from opendbc.car.lateral import AngleSteeringLimitsVM
 
 Ecu = CarParams.Ecu
 
@@ -14,6 +15,15 @@ Ecu = CarParams.Ecu
 class CarControllerParams:
   ACCEL_MIN = -3.5 # m/s^2
   ACCEL_MAX = 2.0 # m/s^2
+
+  # 준파일럿: 각도 조향 차(ANGLE_CONTROL). 판다 안전 코드(hyundai_canfd.h)와 같은 값이어야 함
+  ANGLE_LIMITS: AngleSteeringLimitsVM = AngleSteeringLimitsVM(
+    119.9,  # deg, LFA_ALT 신호가 표현할 수 있는 최대 각도
+    MAX_ANGLE_RATE=0.5,  # deg/프레임(100Hz) = 50 deg/s. 처음엔 보수적으로, 저속 편의·EPS 보호용
+  )
+  ANGLE_TORQUE_GAIN = 234      # LFA_ALT 토크 비율(0~255). 순정 카메라가 평소 보내는 값
+  ANGLE_TORQUE_GAIN_OVERRIDE = 85  # 운전자가 핸들을 잡고 돌릴 때 (순정 카메라 값)
+  ANGLE_TORQUE_GAIN_STEP = 2   # 프레임당 변화량
 
   def __init__(self, CP):
     self.STEER_DELTA_UP = 3
@@ -149,6 +159,9 @@ class HyundaiFlags(IntFlag):
   ALT_LIMITS_2 = 2 ** 26
 
   HAS_BSM = 2 ** 27  # blind spot monitoring
+
+  # 준파일럿: 각도 조향 차 (카메라가 LFA_ALT 0xCB로 조향 각도를 요청, 예: Kia PV5)
+  ANGLE_CONTROL = 2 ** 28
 
 
 @dataclass
@@ -560,7 +573,7 @@ class CAR(Platforms):
       HyundaiCarDocs("Kia PV5 (SW1) 2025-26", car_parts=CarParts.common([CarHarness.hyundai_a])),
     ],
     CarSpecs(wheelbase=2.995, steerRatio=16.0, tireStiffnessFactor=0.65),
-    flags=HyundaiFlags.EV,
+    flags=HyundaiFlags.EV | HyundaiFlags.ANGLE_CONTROL,
   )
   KIA_CARNIVAL_4TH_GEN = HyundaiCanFDPlatformConfig(
     [

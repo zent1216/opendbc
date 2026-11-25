@@ -1,7 +1,8 @@
 import numpy as np
 from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
-from opendbc.car.lateral import apply_driver_steer_torque_limits, common_fault_avoidance
+from opendbc.car.lateral import apply_driver_steer_torque_limits, apply_steer_angle_limits_vm, common_fault_avoidance
+from opendbc.car.vehicle_model import VehicleModel
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai.junpilot_buttons import JunpilotButtonFollower, JunpilotGapSetter, GAP_BUTTON, BURST as JP_BURST
 from opendbc.car.hyundai import hyundaicanfd, hyundaican
@@ -65,6 +66,12 @@ class CarController(CarControllerBase):
     self.jp_gap = JunpilotGapSetter()
     self.jp_pv5 = CP.carFingerprint == CAR.KIA_PV5
     self.cancel_counter = 0
+    # 준파일럿: 각도 조향 차 (PV5)
+    self.angle_control = bool(CP.flags & HyundaiFlags.ANGLE_CONTROL)
+    self.apply_angle_last = 0.0
+    self.angle_gain = 0.0
+    self.lfa_alt_counter = 0
+    self.VM = VehicleModel(CP) if self.angle_control else None
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -81,6 +88,19 @@ class CarController(CarControllerBase):
 
     if not CC.latActive:
       apply_torque = 0
+
+    # 준파일럿: 각도 조향 차는 토크 명령을 쓰지 않고 각도 명령(LFA_ALT)으로 조향
+    if self.angle_control:
+      apply_torque = 0
+      apply_steer_req = False
+      self.apply_angle_last = apply_steer_angle_limits_vm(actuators.steeringAngleDeg, self.apply_angle_last, CS.out.vEgoRaw,
+                                                          CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
+      # 운전자가 핸들을 돌리면 순정처럼 조향 힘(토크 비율)을 낮춤
+      gain_target = 0.0
+      if CC.latActive:
+        gain_target = self.params.ANGLE_TORQUE_GAIN_OVERRIDE if CS.out.steeringPressed else self.params.ANGLE_TORQUE_GAIN
+      step = self.params.ANGLE_TORQUE_GAIN_STEP
+      self.angle_gain = float(np.clip(gain_target, self.angle_gain - step, self.angle_gain + step))
 
     self.apply_torque_last = apply_torque
 
@@ -124,6 +144,8 @@ class CarController(CarControllerBase):
     new_actuators = actuators.as_builder()
     new_actuators.torque = apply_torque / self.params.STEER_MAX
     new_actuators.torqueOutputCan = apply_torque
+    if self.angle_control:
+      new_actuators.steeringAngleDeg = self.apply_angle_last
     new_actuators.accel = accel
 
     self.frame += 1
@@ -183,6 +205,11 @@ class CarController(CarControllerBase):
 
     # steering control
     can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN, CC.enabled, apply_steer_req, apply_torque))
+    # 준파일럿: 각도 조향 (카메라의 LFA_ALT는 판다가 막고, 오픈파일럿이 대신 보냄)
+    if self.angle_control and CS.lfa_alt is not None:
+      self.lfa_alt_counter = (self.lfa_alt_counter + 1) % 256
+      can_sends.append(hyundaicanfd.create_lfa_alt(self.packer, self.CAN, CS.lfa_alt, self.lfa_alt_counter, CC.latActive,
+                                                   self.apply_angle_last, self.angle_gain))
 
     # prevent LFA from activating on LKA steering cars by sending "no lane lines detected" to ADAS ECU
     if self.frame % 5 == 0 and lka_steering:

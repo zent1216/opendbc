@@ -83,6 +83,19 @@ def create_buttons(packer, CP, CAN, cnt, btn):
   return packer.make_can_msg("CRUISE_BUTTONS", bus, values)
 
 
+def create_lfa_alt(packer, CAN, cam_msg, counter, lat_active, apply_angle, torque_gain):
+  """준파일럿: 각도 조향 명령 (LFA_ALT 0xCB, PV5). 카메라가 보내던 값을 복사하고 조향 부분만 바꾼다.
+  실차 rlog: 순정 카메라는 ADAS_ActvACILvl2Sta=2(조향 중), ADAS_StrAnglReqVal=조향 각도(실제 각도와 같은 부호),
+  ADAS_ACIAnglTqRedcGainVal 원시값 234(운전자 조향 시 85)를 보냄."""
+  values = {k: v for k, v in cam_msg.items() if k not in ("CHECKSUM", "COUNTER")}
+  values["COUNTER"] = counter
+  values["ADAS_ActvACISta"] = 0
+  values["ADAS_ActvACILvl2Sta"] = 2 if lat_active else 1
+  values["ADAS_StrAnglReqVal"] = apply_angle
+  values["ADAS_ACIAnglTqRedcGainVal"] = (torque_gain if lat_active else 0) * 0.004
+  return packer.make_can_msg("LFA_ALT", CAN.ECAN, values)
+
+
 def create_pv5_buttons(packer, CAN, btn_msg, counter, btn):
   """준파일럿: PV5 CRUISE_BUTTONS_ALT2(0x10B)를 마지막으로 받은 값 그대로 복사해 버튼만 바꿔 카메라로 보낸다.
   체크섬은 packer가 계산 (실차 rlog 1500개 프레임으로 같은 체크섬 확인)."""

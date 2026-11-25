@@ -24,6 +24,7 @@ BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: Bu
 
 PV5_HDA_MSG = "CANFD_HDA_INFO_364"
 PV5_STATUS_MSG = "CANFD_NAVI_STATUS_380"
+PV5_NO_COUNTER = ("ACCELERATOR", "MANUAL_SPEED_LIMIT_ASSIST")
 
 
 class CarState(CarStateBase):
@@ -335,6 +336,11 @@ class CarState(CarStateBase):
     }
     if pv5:
       parsers[Bus.alt] = CANParser(DBC[CP.carFingerprint][Bus.pt], [(PV5_STATUS_MSG, math.nan)], CanBus(CP).ACAN)
+      # 준파일럿: PV5는 이 두 메시지의 카운터가 규칙대로 늘지 않음 (실차 rlog 확인, 당근파일럿도 카운터 검사 제외)
+      pt = parsers[Bus.pt]
+      for name in PV5_NO_COUNTER:
+        pt._add_message(name)
+        pt.message_states[pt.dbc.name_to_msg[name].address].ignore_counter = True
     return parsers
 
   def get_can_parsers(self, CP):

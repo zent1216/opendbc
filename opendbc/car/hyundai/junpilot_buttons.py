@@ -95,3 +95,42 @@ class JunpilotButtonFollower:
     self.next_press_t = self.t + st.interval
     st.last_button = btn
     return btn
+
+
+GAP_BUTTON = 3
+GAP_INTERVAL = 0.6       # 차간거리 버튼 누름 간격(초)
+GAP_MAX_PRESSES = 6      # 크루즈를 한 번 켤 때 최대 누름 수 (단계는 4개라 한 바퀴 반이면 충분)
+
+
+class JunpilotGapSetter:
+  """준파일럿: 크루즈가 켜질 때 순정 차간거리 단계를 설정값으로 맞춘다.
+
+  - 지금 단계(1~4)가 원하는 단계와 다르면 차간거리 버튼을 GAP_INTERVAL마다 한 번씩 누른다.
+  - 운전자가 핸들 버튼으로 차간거리를 바꾸면 이번 시동 동안은 더 건드리지 않는다.
+  - 크루즈를 껐다 켜면 다시 맞춘다 (운전자가 바꾼 경우 제외).
+  """
+
+  def __init__(self):
+    self.t = 0.0
+    self.next_press_t = 0.0
+    self.presses = 0
+    self.driver_touched = False
+    self.prev_enabled = False
+
+  def update(self, want_gap: int, cur_gap: int, cruise_enabled: bool, driver_gap_pressed: bool) -> bool:
+    """매 제어 주기 호출. 이번 주기에 차간거리 버튼을 보내야 하면 True."""
+    self.t += DT_CTRL
+    if driver_gap_pressed:
+      self.driver_touched = True
+    if cruise_enabled and not self.prev_enabled:
+      self.presses = 0
+      self.next_press_t = self.t + 1.0  # 크루즈가 켜진 직후 1초는 기다림
+    self.prev_enabled = cruise_enabled
+
+    if not cruise_enabled or self.driver_touched or not (1 <= want_gap <= 4) or not (1 <= cur_gap <= 4):
+      return False
+    if cur_gap == want_gap or self.presses >= GAP_MAX_PRESSES or self.t < self.next_press_t:
+      return False
+    self.presses += 1
+    self.next_press_t = self.t + GAP_INTERVAL
+    return True

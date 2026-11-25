@@ -35,6 +35,7 @@ class CarState(CarStateBase):
     self.cruise_buttons: deque = deque([Buttons.NONE] * PREV_BUTTON_SAMPLES, maxlen=PREV_BUTTON_SAMPLES)
     self.main_buttons: deque = deque([Buttons.NONE] * PREV_BUTTON_SAMPLES, maxlen=PREV_BUTTON_SAMPLES)
     self.lda_button = 0
+    self.pv5_btn_msg = None  # 준파일럿: PV5 0x10B 마지막 값 (버튼 대신 누르기용)
 
     self.gear_msg_canfd = "ACCELERATOR" if CP.flags & HyundaiFlags.EV else \
                           "GEAR_ALT" if CP.flags & HyundaiFlags.CANFD_ALT_GEARS else \
@@ -299,6 +300,7 @@ class CarState(CarStateBase):
       # 준파일럿: PV5 버튼은 CRUISE_BUTTONS_ALT2(0x10B)에 있음 (실차 rlog 확인)
       # 1=RES+, 2=SET-, 3=차간거리, 8=크루즈 켜기/끄기, LFA_BTN=차선중앙
       self.lda_button = cp.vl["CRUISE_BUTTONS_ALT2"]["LFA_BTN"]
+      self.pv5_btn_msg = copy.copy(cp.vl["CRUISE_BUTTONS_ALT2"])
       raw = [int(v) for v in cp.vl_all["CRUISE_BUTTONS_ALT2"]["CRUISE_BUTTONS"]]
       if raw:
         self.cruise_buttons.extend([v if v <= 4 else 0 for v in raw])

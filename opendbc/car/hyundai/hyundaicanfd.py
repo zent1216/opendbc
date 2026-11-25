@@ -83,6 +83,16 @@ def create_buttons(packer, CP, CAN, cnt, btn):
   return packer.make_can_msg("CRUISE_BUTTONS", bus, values)
 
 
+def create_pv5_buttons(packer, CAN, btn_msg, counter, btn):
+  """준파일럿: PV5 CRUISE_BUTTONS_ALT2(0x10B)를 마지막으로 받은 값 그대로 복사해 버튼만 바꿔 카메라로 보낸다.
+  체크섬은 packer가 계산 (실차 rlog 1500개 프레임으로 같은 체크섬 확인)."""
+  values = {k: v for k, v in btn_msg.items() if k != "CHECKSUM"}
+  values["COUNTER"] = counter % 256
+  values["CRUISE_BUTTONS"] = btn
+  values["LFA_BTN"] = 0
+  return packer.make_can_msg("CRUISE_BUTTONS_ALT2", CAN.CAM, values)
+
+
 def create_acc_cancel(packer, CP, CAN, cruise_info_copy):
   # CAN FD camera-based SCC requires additional signals to be preserved
   # verbatim from the previous SCC_CONTROL frame to avoid checksum or

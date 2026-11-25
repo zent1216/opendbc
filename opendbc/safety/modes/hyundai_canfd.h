@@ -202,6 +202,19 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
     }
   }
 
+  // junpilot (PV5): CRUISE_BUTTONS_ALT2 to the camera. Only RES+/SET-/GAP, never LFA or cruise on/off,
+  // and only while stock cruise is engaged and controls are allowed.
+  if (msg->addr == 0x10bU) {
+    const uint8_t button = msg->data[10] & 0xFU;
+    const bool lfa = GET_BIT(msg, 87U);
+    const bool button_ok = (button == HYUNDAI_BTN_RESUME) || (button == HYUNDAI_BTN_SET) || (button == 3U);
+    const bool allowed = safety_setup.hyundai_canfd_junpilot_pv5 && button_ok && !lfa &&
+                         safety.controls_allowed && safety.cruise_engaged_prev;
+    if (!allowed) {
+      tx = false;
+    }
+  }
+
   // UDS: only tester present ("\x02\x3E\x80\x00\x00\x00\x00\x00") allowed on diagnostics address
   if ((safety_setup.hyundai_canfd_lka_steer_msg && (msg->addr == 0x730U)) || (!safety_setup.hyundai_camera_scc && (msg->addr == 0x7D0U))) {
     if (GET_BYTES_64_LE(msg, 0, 8) != 0x0000000000803E02ULL) {
@@ -387,7 +400,17 @@ static safety_config hyundai_canfd_init(uint16_t param) {
         HYUNDAI_CANFD_LFA_STEERING_CAMERA_SCC_TX_MSGS(false)
       };
 
-      SET_TX_MSGS(hyundai_canfd_lfa_steering_camera_scc_tx_msgs, ret);
+      // junpilot (PV5): cruise buttons (CRUISE_BUTTONS_ALT2) may be sent to the camera, see tx hook
+      static const CanMsg hyundai_canfd_pv5_tx_msgs[] = {
+        HYUNDAI_CANFD_LFA_STEERING_CAMERA_SCC_TX_MSGS(false)
+        {0x10B, 2, 16, .check_relay = false},
+      };
+
+      if (junpilot_pv5) {
+        SET_TX_MSGS(hyundai_canfd_pv5_tx_msgs, ret);
+      } else {
+        SET_TX_MSGS(hyundai_canfd_lfa_steering_camera_scc_tx_msgs, ret);
+      }
 
       if (junpilot_pv5 && safety_setup.hyundai_canfd_alt_buttons) {
         SET_RX_CHECKS(hyundai_canfd_pv5_rx_checks, ret);

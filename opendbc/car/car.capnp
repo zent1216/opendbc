@@ -396,6 +396,7 @@ struct CarControl {
     resume @1: Bool;
     override @4: Bool;
     junpilotTargetSpeed @5: Float32;  # 준파일럿: 순정 크루즈 목표 설정속도 (m/s, 0이면 사용 안 함)
+    junpilotGap @6: UInt8;            # 준파일럿: 원하는 순정 크루즈 차간거리 단계 (1~4, 0이면 건드리지 않음)
 
     deprecated :group {
       speedOverride @2: Float32;

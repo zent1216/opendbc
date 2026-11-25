@@ -75,7 +75,7 @@ bool get_junpilot_lat_allowed(void){
 }
 
 void set_junpilot_lat_allowed(bool c){
-  safety.junpilot_lat_allowed = c;
+  SAFETY_SET(junpilot_lat_allowed, c);
 }
 
 bool get_ignition_can(void){

@@ -365,3 +365,19 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
       self._rx(self._pv5_btn_msg(btn))
       self._rx(self._pcm_status_msg(True))
       self.assertEqual(allowed, self.safety.get_controls_allowed(), btn)
+
+  def test_pv5_button_sends(self):
+    def btn_tx(btn, lfa=False):
+      dat = bytearray(16)
+      dat[10] = (btn & 0xF) | (0x80 if lfa else 0)
+      return self._tx(libsafety_py.make_CANPacket(0x10b, 2, bytes(dat)))
+
+    for cruise in (False, True):
+      for allowed in (False, True):
+        self.safety.set_junpilot_lat_allowed(False)
+        self._rx(self._pcm_status_msg(cruise))
+        self.safety.set_controls_allowed(allowed)
+        for btn in range(16):
+          expected = cruise and allowed and btn in (1, 2, 3)
+          self.assertEqual(expected, btn_tx(btn), (cruise, allowed, btn))
+          self.assertFalse(btn_tx(btn, lfa=True))

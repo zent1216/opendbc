@@ -50,11 +50,10 @@ def process_hud_alert(enabled, fingerprint, hud_control):
   return sys_warning, sys_state, left_lane_warning, right_lane_warning
 
 
-# 준파일럿 각도 조향: 목표 각도 저역 필터 시간상수(초), 속도(km/h)별
-ANGLE_FILTER_SPEED_KPH = [0., 30., 60., 100.]
-ANGLE_FILTER_TAU = [0.30, 0.20, 0.12, 0.08]
-DRIVER_TQ_TAU = 0.15
-ANGLE_OVERRIDE_TORQUE = 350.
+# 준파일럿 각도 조향
+ANGLE_FILTER_TAU = 0.05  # 20Hz 계단을 이어주는 정도
+DRIVER_TQ_TAU = 0.12
+ANGLE_OVERRIDE_TORQUE = 250.
 
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
@@ -101,24 +100,26 @@ class CarController(CarControllerBase):
     if self.angle_control:
       apply_torque = 0
       apply_steer_req = False
-      # 모델 목표 각도의 잔떨림을 걸러냄 (실차 로그: 30km/h에서 목표가 초당 3번 ±1~2도로 흔들려 핸들을 '털었음')
+      # 모델은 20Hz라 목표 각도가 50ms마다 계단처럼 바뀜 → 100Hz로 부드럽게 이어줌.
+      # (큰 잔떨림은 modeld가 지연을 보정하면서 곡률을 부드럽게 함)
       if CC.latActive:
-        tau = float(np.interp(CS.out.vEgoRaw * 3.6, ANGLE_FILTER_SPEED_KPH, ANGLE_FILTER_TAU))
-        alpha = DT_CTRL / (tau + DT_CTRL)
-        self.angle_target_f += alpha * (actuators.steeringAngleDeg - self.angle_target_f)
+        self.angle_target_f += DT_CTRL / (ANGLE_FILTER_TAU + DT_CTRL) * (actuators.steeringAngleDeg - self.angle_target_f)
       else:
         self.angle_target_f = CS.out.steeringAngleDeg
       self.apply_angle_last = apply_steer_angle_limits_vm(self.angle_target_f, self.apply_angle_last, CS.out.vEgoRaw,
                                                           CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
-      # 운전자가 핸들을 확실히 돌릴 때만 순정처럼 조향 힘(토크 비율)을 낮춤.
-      # 손만 얹어도 토크가 100~300 나와서 steeringPressed(150)로는 힘이 수시로 빠졌다 들어왔다 함
-      self.driver_tq_f += DT_CTRL / (DRIVER_TQ_TAU + DT_CTRL) * (abs(CS.out.steeringTorque) - self.driver_tq_f)
-      gain_target = 0.0
+      # 조향 힘(토크 비율): 당근파일럿처럼 운전자가 확실히 돌리면 천천히 낮추고, 손을 놓으면 서서히 회복.
+      # 손만 얹어도 토크가 100~300 나와서 순간값으로 판단하면 힘이 수시로 빠졌다 들어왔다 함
       if CC.latActive:
-        override = self.driver_tq_f > ANGLE_OVERRIDE_TORQUE
-        gain_target = self.params.ANGLE_TORQUE_GAIN_OVERRIDE if override else self.params.ANGLE_TORQUE_GAIN
-      step = self.params.ANGLE_TORQUE_GAIN_STEP
-      self.angle_gain = float(np.clip(gain_target, self.angle_gain - step, self.angle_gain + step))
+        self.driver_tq_f += DT_CTRL / (DRIVER_TQ_TAU + DT_CTRL) * (CS.out.steeringTorque - self.driver_tq_f)
+        tq = abs(self.driver_tq_f)
+        if tq > ANGLE_OVERRIDE_TORQUE:
+          self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, self.params.ANGLE_TORQUE_GAIN_OVERRIDE)
+        elif tq < ANGLE_OVERRIDE_TORQUE * 0.6:
+          self.angle_gain = min(self.angle_gain + self.params.ANGLE_TORQUE_GAIN_UP, self.params.ANGLE_TORQUE_GAIN)
+      else:
+        self.driver_tq_f = 0.0
+        self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, 0.0)
 
     self.apply_torque_last = apply_torque
 

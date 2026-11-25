@@ -23,7 +23,9 @@ class CarControllerParams:
   )
   ANGLE_TORQUE_GAIN = 234      # LFA_ALT 토크 비율(0~255). 순정 카메라가 평소 보내는 값
   ANGLE_TORQUE_GAIN_OVERRIDE = 85  # 운전자가 핸들을 잡고 돌릴 때 (순정 카메라 값)
-  ANGLE_TORQUE_GAIN_STEP = 2   # 프레임당 변화량
+  ANGLE_TORQUE_GAIN_STEP = 2
+  ANGLE_TORQUE_GAIN_DOWN = 3  # 운전자 개입 시 프레임당 감소
+  ANGLE_TORQUE_GAIN_UP = 1.5  # 회복 (85→234 약 1초)   # 프레임당 변화량
 
   def __init__(self, CP):
     self.STEER_DELTA_UP = 3

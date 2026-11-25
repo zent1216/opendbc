@@ -279,6 +279,8 @@ typedef struct {
 typedef struct {
   // This can be set by the safety hooks
   bool controls_allowed;
+  bool junpilot_lat_allowed;  // junpilot: lateral-only (LFA button), survives brake and cruise cancel
+  bool junpilot_lfa_pressed_prev;
   bool relay_malfunction;
   bool gas_pressed;
   bool gas_pressed_prev;
@@ -373,6 +375,7 @@ typedef struct {
   bool hyundai_alt_limits_2;
   bool hyundai_legacy;
   bool hyundai_canfd_alt_buttons;
+  bool hyundai_canfd_junpilot_pv5;
   bool hyundai_canfd_lka_steer_msg_alt;
 
   bool nissan_alt_eps;

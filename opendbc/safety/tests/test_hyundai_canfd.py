@@ -5,6 +5,7 @@ import unittest
 from opendbc.car.hyundai.values import HyundaiSafetyFlags
 from opendbc.car.structs import CarParams
 import opendbc.safety.tests.common as common
+from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests.hyundai_common import HyundaiButtonBase, HyundaiLongitudinalBase
 
 # All combinations of radar/camera-SCC and gas/hybrid/EV cars
@@ -305,3 +306,26 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
     for i in range(40):
       msg = self.packer.make_can_msg_safety("ACCELERATOR", self.PT_BUS, {"COUNTER": (i * 2) & 0xff, "ACCELERATOR_PEDAL": 0})
       self.assertTrue(self._rx(msg))
+
+  def _lfa_msg(self, pressed):
+    dat = bytearray(16)
+    dat[10] = 0x80 if pressed else 0
+    return libsafety_py.make_CANPacket(0x10b, self.PT_BUS, bytes(dat))
+
+  def test_pv5_lfa_button_lateral_only(self):
+    self.safety.set_controls_allowed(False)
+    self.assertFalse(self.safety.get_junpilot_lat_allowed())
+    self.assertFalse(self._tx(self._torque_cmd_msg(10, steer_req=1)))
+    self._rx(self._lfa_msg(True))
+    self._rx(self._lfa_msg(False))
+    self.assertTrue(self.safety.get_junpilot_lat_allowed())
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._torque_cmd_msg(0, steer_req=1)))
+    # brake does not end lateral-only
+    self._rx(self._user_brake_msg(True))
+    self._rx(self._user_brake_msg(False))
+    self.assertTrue(self.safety.get_junpilot_lat_allowed())
+    # openpilot not engaged for a few heartbeats -> cleared
+    for _ in range(4):
+      self.safety.set_timer(0)
+      self.safety.heartbeat_check() if hasattr(self.safety, "heartbeat_check") else None

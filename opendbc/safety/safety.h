@@ -178,6 +178,7 @@ static bool rx_msg_safety_check(const CANPacket_t *msg,
   bool valid = is_msg_valid(index);
   if (!valid) {
     safety.controls_allowed = false;
+    safety.junpilot_lat_allowed = false;
   }
   return valid;
 }
@@ -287,6 +288,7 @@ static void tick_copy(void) {
     if (status->lagging || !is_msg_valid(i)) {
       rx_checks_invalid = true;
       safety.controls_allowed = false;
+      safety.junpilot_lat_allowed = false;
     }
   }
 
@@ -295,10 +297,11 @@ static void tick_copy(void) {
 
 static void heartbeat_check_copy(void) {
   // exit controls allowed if unused by openpilot for a few seconds
-  if (safety.controls_allowed && !safety.heartbeat_engaged) {
+  if ((safety.controls_allowed || safety.junpilot_lat_allowed) && !safety.heartbeat_engaged) {
     safety.heartbeat_engaged_mismatches += 1U;
     if (safety.heartbeat_engaged_mismatches >= 3U) {
       safety.controls_allowed = false;
+      safety.junpilot_lat_allowed = false;
     }
   } else {
     safety.heartbeat_engaged_mismatches = 0U;

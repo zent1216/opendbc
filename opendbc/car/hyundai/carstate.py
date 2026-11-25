@@ -294,6 +294,9 @@ class CarState(CarStateBase):
     self.cruise_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["CRUISE_BUTTONS"])
     self.main_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["ADAPTIVE_CRUISE_MAIN_BTN"])
     self.lda_button = cp.vl[self.cruise_btns_msg_canfd]["LDA_BTN"]
+    if self.CP.carFingerprint == CAR.KIA_PV5:
+      # 준파일럿: PV5 차선중앙(LFA) 버튼은 CRUISE_BUTTONS_ALT2(0x10B)에 있음 (실차 rlog 확인)
+      self.lda_button = cp.vl["CRUISE_BUTTONS_ALT2"]["LFA_BTN"]
     self.buttons_counter = cp.vl[self.cruise_btns_msg_canfd]["COUNTER"]
     ret.accFaulted = cp.vl["TCS"]["ACCEnable"] != 0  # 0 ACC CONTROL ENABLED, 1-3 ACC CONTROL DISABLED
 
@@ -330,6 +333,7 @@ class CarState(CarStateBase):
     if pv5:
       # 준파일럿: 순정 내비 단속 정보. 없어도 CAN 오류가 나지 않도록 생존 검사 제외(nan)
       msgs.append((PV5_HDA_MSG, math.nan))
+      msgs.append(("CRUISE_BUTTONS_ALT2", math.nan))
     parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, CanBus(CP).ECAN),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus(CP).CAM),

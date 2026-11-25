@@ -70,6 +70,14 @@ bool get_controls_allowed(void){
   return safety.controls_allowed;
 }
 
+bool get_junpilot_lat_allowed(void){
+  return safety.junpilot_lat_allowed;
+}
+
+void set_junpilot_lat_allowed(bool c){
+  safety.junpilot_lat_allowed = c;
+}
+
 bool get_ignition_can(void){
   return ignition_can;
 }

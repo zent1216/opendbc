@@ -49,6 +49,7 @@
   {.msg = {{0xa0, (pt_bus), 24, 100U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                       \
   {.msg = {{0xea, (pt_bus), 24, 100U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                       \
   {.msg = {{0x1aa, (pt_bus), 16, 50U, .ignore_checksum = true, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},             \
+  {.msg = {{0x10b, (pt_bus), 16, 25U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},           \
 
 // SCC_CONTROL (from ADAS unit or camera)
 #define HYUNDAI_CANFD_SCC_ADDR_CHECK(scc_bus)                                                                            \
@@ -98,6 +99,16 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
     hyundai_common_cruise_buttons_check(cruise_button, main_button);
   }
 
+  // junpilot (PV5): LFA button (CRUISE_BUTTONS_ALT2 0x10B, byte 10 bit 7) starts lateral-only control.
+  // It is cleared by the heartbeat check when openpilot is not engaged, and by invalid rx checks.
+  if (safety_setup.hyundai_canfd_junpilot_pv5 && msg_matches(msg, 0x10bU, pt_bus)) {
+    const bool lfa_pressed = GET_BIT(msg, 87U);
+    if (lfa_pressed && !safety.junpilot_lfa_pressed_prev) {
+      safety.junpilot_lat_allowed = true;
+    }
+    safety.junpilot_lfa_pressed_prev = lfa_pressed;
+  }
+
   // gas press, different for EV, hybrid, and ICE models
   if (msg_matches(msg, 0x35U, pt_bus) && safety_setup.hyundai_ev_gas_signal) {
     safety.gas_pressed = msg->data[5] != 0U;
@@ -129,6 +140,9 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
     // 1=enabled, 2=driver override
     uint8_t cruise_status = (msg->data[8] >> 4) & 0x7U;
     bool cruise_engaged = (cruise_status == 1U) || (cruise_status == 2U);
+    if (safety_setup.hyundai_canfd_junpilot_pv5 && cruise_engaged && !safety.cruise_engaged_prev) {
+      safety.junpilot_lat_allowed = true;  // keep steering after brake/cancel (lateral-only)
+    }
     hyundai_common_cruise_state_check(cruise_engaged);
   }
 }
@@ -269,7 +283,8 @@ static safety_config hyundai_canfd_init(uint16_t param) {
 
   safety_setup.hyundai_canfd_alt_buttons = GET_FLAG(param, HYUNDAI_PARAM_CANFD_ALT_BUTTONS);
   safety_setup.hyundai_canfd_lka_steer_msg_alt = GET_FLAG(param, HYUNDAI_PARAM_CANFD_LKA_STEER_MSG_ALT);
-  const bool junpilot_pv5 = GET_FLAG(param, HYUNDAI_PARAM_JUNPILOT_PV5);
+  safety_setup.hyundai_canfd_junpilot_pv5 = GET_FLAG(param, HYUNDAI_PARAM_JUNPILOT_PV5);
+  const bool junpilot_pv5 = safety_setup.hyundai_canfd_junpilot_pv5;
 
   safety_config ret;
   if (safety_setup.hyundai_longitudinal) {

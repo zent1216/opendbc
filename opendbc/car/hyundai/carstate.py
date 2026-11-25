@@ -224,8 +224,11 @@ class CarState(CarStateBase):
 
     ret.brakePressed = cp.vl["TCS"]["DriverBraking"] == 1
 
-    ret.doorOpen = cp.vl["DOORS_SEATBELTS"]["DRIVER_DOOR"] == 1
-    ret.seatbeltUnlatched = cp.vl["DOORS_SEATBELTS"]["DRIVER_SEATBELT"] == 0
+    # 준파일럿: PV5는 DOORS_SEATBELTS(0x411)·BLINKERS(0x413)를 보내지 않음 (실차 로그 확인)
+    pv5 = self.CP.carFingerprint == CAR.KIA_PV5
+    if not pv5:
+      ret.doorOpen = cp.vl["DOORS_SEATBELTS"]["DRIVER_DOOR"] == 1
+      ret.seatbeltUnlatched = cp.vl["DOORS_SEATBELTS"]["DRIVER_SEATBELT"] == 0
 
     gear = cp.vl[self.gear_msg_canfd]["GEAR"]
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
@@ -251,8 +254,13 @@ class CarState(CarStateBase):
     left_blinker_sig, right_blinker_sig = "LEFT_LAMP", "RIGHT_LAMP"
     if self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2ND_GEN:
       left_blinker_sig, right_blinker_sig = "LEFT_LAMP_ALT", "RIGHT_LAMP_ALT"
-    ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["BLINKERS"][left_blinker_sig],
-                                                                      cp.vl["BLINKERS"][right_blinker_sig])
+    if pv5:
+      bl = cp.vl["BLINKERS_ALT"]
+      ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, bl["LEFT_LAMP"] or bl["LEFT_LAMP_ALT"],
+                                                                        bl["RIGHT_LAMP"] or bl["RIGHT_LAMP_ALT"])
+    else:
+      ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["BLINKERS"][left_blinker_sig],
+                                                                        cp.vl["BLINKERS"][right_blinker_sig])
     if self.CP.flags & HyundaiFlags.HAS_BSM:
       ret.leftBlindspot = bool(cp.vl["ADAS_CMD_50_50ms"]["BCW_LtIndSta"])
       ret.rightBlindspot = bool(cp.vl["ADAS_CMD_50_50ms"]["BCW_RtIndSta"])

@@ -108,6 +108,28 @@ def create_mdps_to_camera(packer, CAN, mdps, cam_lfa_alt):
   return packer.make_can_msg("MDPS", CAN.CAM, values)
 
 
+def create_ccnc_display(packer, CAN, ccnc, lat_active, hud, left_blinker, right_blinker, blink_on):
+  """준파일럿: 계기판 표시(CCNC 0x161)에 오픈파일럿이 인식한 차선과 조향 상태를 반영.
+  조향 중일 때만 바꾸고, 나머지(경고·소리·속도·앞차 등)는 카메라 값 그대로."""
+  values = dict(ccnc)
+  values.pop("CHECKSUM", None)
+  if lat_active:
+    values["LFA_ICON"] = 2
+    values["CENTERLINE"] = 1
+    for side, visible, depart in (("LEFT", hud.leftLaneVisible, hud.leftLaneDepart),
+                                  ("RIGHT", hud.rightLaneVisible, hud.rightLaneDepart)):
+      key = "LANELINE_" + side
+      if depart:
+        values[key] = 4 if blink_on else 1
+      elif visible:
+        values[key] = values[key] if values[key] not in (0, 1) else 2  # 카메라가 정한 선 종류가 있으면 유지
+      else:
+        values[key] = 0
+    values["LCA_LEFT_ARROW"] = 2 if left_blinker else 0
+    values["LCA_RIGHT_ARROW"] = 2 if right_blinker else 0
+  return packer.make_can_msg("CCNC_0x161", CAN.ECAN, values)
+
+
 def create_pv5_buttons(packer, CAN, btn_msg, counter, btn):
   """준파일럿: PV5 CRUISE_BUTTONS_ALT2(0x10B)를 마지막으로 받은 값 그대로 복사해 버튼만 바꿔 카메라로 보낸다.
   체크섬은 packer가 계산 (실차 rlog 1500개 프레임으로 같은 체크섬 확인)."""

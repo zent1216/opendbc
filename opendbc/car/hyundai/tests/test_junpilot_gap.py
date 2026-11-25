@@ -107,3 +107,38 @@ def test_mdps_to_camera_mirrors_camera_state():
   p2.update([(1, [CanData(0xea, bytes(dat), 0)])])
   assert p2.vl["MDPS"]["MDPS_ADASAciActvSta_Lv2"] == 1
   assert p2.can_valid
+
+
+def test_gap_setter_follows_changed_target():
+  g = JunpilotGapSetter()
+  presses = 0
+  for _ in range(int(3 / 0.01)):
+    presses += g.update(3, 3, True, False)
+  assert presses == 0
+  for _ in range(int(3 / 0.01)):
+    presses += g.update(1, 3, True, False)
+  assert presses >= 4  # 원하는 단계가 바뀌면 다시 누르기 시작
+
+
+def test_ccnc_display_shows_openpilot_lanes():
+  real = bytes.fromhex("c1f796c000000000c404f0c00300004000000005000040423132030001000000")
+  dbc = DBC[CAR.KIA_PV5][Bus.pt]
+  p = CANParser(dbc, [("CCNC_0x161", 0)], 2)
+  p.update([(1, [CanData(0x161, real, 2)])])
+  v = dict(p.vl["CCNC_0x161"])
+  packer = CANPacker(dbc)
+  CAN = CanBus(None, fingerprint={0: {}, 1: {}, 2: {}})
+
+  class Hud:
+    leftLaneVisible = True
+    rightLaneVisible = False
+    leftLaneDepart = False
+    rightLaneDepart = False
+  # 조향 안 할 때는 원본 그대로
+  addr, dat, bus = hyundaicanfd.create_ccnc_display(packer, CAN, v, False, Hud, False, False, True)
+  assert (addr, bus) == (0x161, CAN.ECAN) and bytes(dat) == real
+  _, dat, _ = hyundaicanfd.create_ccnc_display(packer, CAN, v, True, Hud, True, False, True)
+  p2 = CANParser(dbc, [("CCNC_0x161", 0)], 0)
+  p2.update([(1, [CanData(0x161, bytes(dat), 0)])])
+  o = p2.vl["CCNC_0x161"]
+  assert o["LFA_ICON"] == 2 and o["LANELINE_LEFT"] == 2 and o["LANELINE_RIGHT"] == 0 and o["LCA_LEFT_ARROW"] == 2

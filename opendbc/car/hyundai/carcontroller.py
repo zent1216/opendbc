@@ -70,6 +70,7 @@ class CarController(CarControllerBase):
     self.jp_buttons = JunpilotButtonFollower(is_metric=True)  # 준파일럿: 한국 km/h 기준
     self.jp_gap = JunpilotGapSetter()
     self.jp_pv5 = CP.carFingerprint == CAR.KIA_PV5
+    self.jp_resume_frame = -100
     self.cancel_counter = 0
     # 준파일럿: 각도 조향 차 (PV5)
     self.angle_control = bool(CP.flags & HyundaiFlags.ANGLE_CONTROL)
@@ -232,6 +233,10 @@ class CarController(CarControllerBase):
       # 조향장치 상태를 카메라로 전달 (진짜 MDPS는 판다가 카메라 쪽으로 못 가게 막음)
       for mdps in CS.mdps_frames:
         can_sends.append(hyundaicanfd.create_mdps_to_camera(self.packer, self.CAN, mdps, CS.lfa_alt))
+      # 계기판에 오픈파일럿이 인식한 차선 표시 (카메라 원본은 판다가 막고 바꾼 값으로 대신 보냄)
+      for ccnc in CS.ccnc_frames:
+        can_sends.append(hyundaicanfd.create_ccnc_display(self.packer, self.CAN, ccnc, CC.latActive, CC.hudControl,
+                                                          CS.out.leftBlinker, CS.out.rightBlinker, (self.frame // 50) % 2 == 0))
 
     # prevent LFA from activating on LKA steering cars by sending "no lane lines detected" to ADAS ECU
     if self.frame % 5 == 0 and lka_steering:
@@ -293,6 +298,12 @@ class CarController(CarControllerBase):
                                            driver_btn != Buttons.NONE, CS.out.gasPressed or CS.out.brakePressed)
         if btn == Buttons.NONE:
           btn = speed_btn
+        # 정차 후 앞차 출발: 순정 SCC가 멈춰 있으면 RES+를 대신 눌러줌 (0.3초 간격)
+        if CC.cruiseControl.resume and CS.out.cruiseState.standstill:
+          btn = Buttons.NONE
+          if self.frame - self.jp_resume_frame >= 30:
+            btn = Buttons.RES_ACCEL
+            self.jp_resume_frame = self.frame
         if btn != Buttons.NONE:
           cnt = int(CS.pv5_btn_msg.get("COUNTER", 0))
           for i in range(JP_BURST):

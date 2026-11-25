@@ -116,6 +116,7 @@ class JunpilotGapSetter:
     self.presses = 0
     self.driver_touched = False
     self.prev_enabled = False
+    self.prev_want = 0
 
   def update(self, want_gap: int, cur_gap: int, cruise_enabled: bool, driver_gap_pressed: bool) -> bool:
     """매 제어 주기 호출. 이번 주기에 차간거리 버튼을 보내야 하면 True."""
@@ -126,6 +127,9 @@ class JunpilotGapSetter:
       self.presses = 0
       self.next_press_t = self.t + 1.0  # 크루즈가 켜진 직후 1초는 기다림
     self.prev_enabled = cruise_enabled
+    if want_gap != self.prev_want:  # 원하는 단계가 바뀌면(자동 차간거리) 다시 맞춤
+      self.presses = 0
+      self.prev_want = want_gap
 
     if not cruise_enabled or self.driver_touched or not (1 <= want_gap <= 4) or not (1 <= cur_gap <= 4):
       return False

@@ -210,6 +210,9 @@ class CarController(CarControllerBase):
       self.lfa_alt_counter = (self.lfa_alt_counter + 1) % 256
       can_sends.append(hyundaicanfd.create_lfa_alt(self.packer, self.CAN, CS.lfa_alt, self.lfa_alt_counter, CC.latActive,
                                                    self.apply_angle_last, self.angle_gain))
+      # 조향장치 상태를 카메라로 전달 (진짜 MDPS는 판다가 카메라 쪽으로 못 가게 막음)
+      for mdps in CS.mdps_frames:
+        can_sends.append(hyundaicanfd.create_mdps_to_camera(self.packer, self.CAN, mdps, CS.lfa_alt))
 
     # prevent LFA from activating on LKA steering cars by sending "no lane lines detected" to ADAS ECU
     if self.frame % 5 == 0 and lka_steering:

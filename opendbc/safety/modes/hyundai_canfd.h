@@ -442,6 +442,7 @@ static safety_config hyundai_canfd_init(uint16_t param) {
         HYUNDAI_CANFD_LFA_STEERING_CAMERA_SCC_TX_MSGS(false)
         {0x10B, 2, 16, .check_relay = false},
         {0xCB, 0, 24, .check_relay = true},  // LFA_ALT, angle steering (camera's is blocked)
+        {0xEA, 2, 24, .check_relay = true},  // MDPS status to the camera, angle-steering state mirrored from the camera's request
       };
 
       if (junpilot_pv5) {

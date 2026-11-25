@@ -96,6 +96,18 @@ def create_lfa_alt(packer, CAN, cam_msg, counter, lat_active, apply_angle, torqu
   return packer.make_can_msg("LFA_ALT", CAN.ECAN, values)
 
 
+def create_mdps_to_camera(packer, CAN, mdps, cam_lfa_alt):
+  """준파일럿: 조향장치(MDPS 0xEA)의 상태를 카메라로 전달하되, 각도 조향 상태는 카메라 자신의 요청 값으로 바꾼다.
+  오픈파일럿이 조향 중이면 MDPS가 '각도 조향 중(2)'을 보고하는데, 카메라는 자기가 요청하지 않았으니
+  고장(LKA_SysWrn=15, '차로 안전 시스템 점검')으로 판단함 (실차 rlog 확인). 나머지 값은 그대로 복사
+  (실차 3000 프레임에서 다시 만든 바이트가 원본과 완전히 같음 확인)."""
+  values = dict(mdps)
+  values.pop("CHECKSUM", None)
+  values["MDPS_ADASAciActvSta"] = cam_lfa_alt["ADAS_ActvACISta"]
+  values["MDPS_ADASAciActvSta_Lv2"] = cam_lfa_alt["ADAS_ActvACILvl2Sta"]
+  return packer.make_can_msg("MDPS", CAN.CAM, values)
+
+
 def create_pv5_buttons(packer, CAN, btn_msg, counter, btn):
   """준파일럿: PV5 CRUISE_BUTTONS_ALT2(0x10B)를 마지막으로 받은 값 그대로 복사해 버튼만 바꿔 카메라로 보낸다.
   체크섬은 packer가 계산 (실차 rlog 1500개 프레임으로 같은 체크섬 확인)."""

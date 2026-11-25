@@ -301,9 +301,9 @@ class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
   GAS_MSG = ("ACCELERATOR", "ACCELERATOR_PEDAL")
   SCC_BUS = 2
   EXTRA_SAFETY_PARAM = HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC | HyundaiSafetyFlags.JUNPILOT_PV5
-  TX_MSGS = [[0x12A, 0], [0x1A0, 1], [0x1CF, 0], [0x1E0, 0], [0xCB, 0], [0x10B, 2]]
-  RELAY_MALFUNCTION_ADDRS = {0: (0x12A, 0x1E0, 0xCB)}  # LFA, LFAHDA_CLUSTER, LFA_ALT (angle)
-  FWD_BLACKLISTED_ADDRS = {2: [0x12A, 0x1E0, 0xCB]}
+  TX_MSGS = [[0x12A, 0], [0x1A0, 1], [0x1CF, 0], [0x1E0, 0], [0xCB, 0], [0x10B, 2], [0xEA, 2]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x12A, 0x1E0, 0xCB), 2: (0xEA,)}  # LFA, LFAHDA_CLUSTER, LFA_ALT (angle), MDPS to camera
+  FWD_BLACKLISTED_ADDRS = {2: [0x12A, 0x1E0, 0xCB], 0: [0xEA]}
 
   def test_pv5_accelerator_counter_step_2(self):
     self.safety.set_controls_allowed(True)

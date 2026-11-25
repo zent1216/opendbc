@@ -84,3 +84,26 @@ def test_pv5_angle_control_params():
   CP = CarInterface.get_params("KIA_PV5", {b: {} for b in range(8)}, [], False, False, False)
   assert CP.steerControlType == structs.CarParams.SteerControlType.angle
   assert CP.lateralTuning.which() != "torque"
+
+
+def test_mdps_to_camera_mirrors_camera_state():
+  """오픈파일럿 조향 중 MDPS가 '각도 조향 중'을 보고하면 카메라가 차로 안전/차로 유지 보조 점검 오류를 띄움.
+  카메라로 가는 MDPS는 카메라 자신의 요청 상태로 바꿔서 보내고, 나머지는 그대로."""
+  real = bytes.fromhex("fb44ca0001410000de089911000000003913011000000000")
+  dbc = DBC[CAR.KIA_PV5][Bus.pt]
+  p = CANParser(dbc, [("MDPS", 0)], 0)
+  p.update([(1, [CanData(0xea, real, 0)])])
+  mdps = dict(p.vl["MDPS"])
+  packer = CANPacker(dbc)
+  CAN = CanBus(None, fingerprint={0: {}, 1: {}, 2: {}})
+  # 카메라가 요청하지 않은 상태와 같으면 원본 바이트 그대로
+  addr, dat, bus = hyundaicanfd.create_mdps_to_camera(packer, CAN, mdps, {"ADAS_ActvACISta": mdps["MDPS_ADASAciActvSta"],
+                                                                        "ADAS_ActvACILvl2Sta": mdps["MDPS_ADASAciActvSta_Lv2"]})
+  assert (addr, bus) == (0xea, CAN.CAM) and bytes(dat) == real
+  # 오픈파일럿 조향 중(2) → 카메라 상태(1)로
+  mdps["MDPS_ADASAciActvSta_Lv2"] = 2
+  _, dat, _ = hyundaicanfd.create_mdps_to_camera(packer, CAN, mdps, {"ADAS_ActvACISta": 0, "ADAS_ActvACILvl2Sta": 1})
+  p2 = CANParser(dbc, [("MDPS", 0)], 0)
+  p2.update([(1, [CanData(0xea, bytes(dat), 0)])])
+  assert p2.vl["MDPS"]["MDPS_ADASAciActvSta_Lv2"] == 1
+  assert p2.can_valid

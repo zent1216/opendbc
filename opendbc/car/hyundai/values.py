@@ -66,6 +66,7 @@ class HyundaiSafetyFlags(IntFlag):
   CANFD_LKA_STEER_MSG_ALT = 128
   FCEV_GAS = 256
   ALT_LIMITS_2 = 512
+  JUNPILOT_PV5 = 1024  # 준파일럿: PV5 ACCELERATOR 카운터가 2씩 증가
 
 
 # Hyundai/Kia/Genesis SCC (Smart Cruise Control) and steering architecture:

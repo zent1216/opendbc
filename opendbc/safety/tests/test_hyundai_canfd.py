@@ -292,3 +292,16 @@ class TestHyundaiCanfdLFASteeringLongAltButtons(TestHyundaiCanfdLFASteeringLongB
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class TestHyundaiCanfdJunpilotPV5(TestHyundaiCanfdLFASteeringAltButtonsBase):
+  """junpilot: Kia PV5 (EV, camera SCC, alt buttons). ACCELERATOR counter steps by 2 on the real car."""
+  GAS_MSG = ("ACCELERATOR", "ACCELERATOR_PEDAL")
+  SCC_BUS = 2
+  EXTRA_SAFETY_PARAM = HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC | HyundaiSafetyFlags.JUNPILOT_PV5
+
+  def test_pv5_accelerator_counter_step_2(self):
+    self.safety.set_controls_allowed(True)
+    for i in range(40):
+      msg = self.packer.make_can_msg_safety("ACCELERATOR", self.PT_BUS, {"COUNTER": (i * 2) & 0xff, "ACCELERATOR_PEDAL": 0})
+      self.assertTrue(self._rx(msg))

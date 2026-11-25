@@ -42,6 +42,14 @@
   HYUNDAI_CANFD_COMMON_RX_CHECKS(pt_bus)                                                                                                         \
   {.msg = {{0x1aa, (pt_bus), 16, 50U, .ignore_checksum = true, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
 
+// junpilot: Kia PV5 ACCELERATOR(0x35) counter steps by 2, so the counter check is skipped for it
+#define HYUNDAI_CANFD_PV5_RX_CHECKS(pt_bus)                                                                                                     \
+  {.msg = {{0x35, (pt_bus), 32, 100U, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                     \
+  {.msg = {{0x175, (pt_bus), 24, 50U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                       \
+  {.msg = {{0xa0, (pt_bus), 24, 100U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                       \
+  {.msg = {{0xea, (pt_bus), 24, 100U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},                                       \
+  {.msg = {{0x1aa, (pt_bus), 16, 50U, .ignore_checksum = true, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},             \
+
 // SCC_CONTROL (from ADAS unit or camera)
 #define HYUNDAI_CANFD_SCC_ADDR_CHECK(scc_bus)                                                                            \
   {.msg = {{0x1a0, (scc_bus), 32, 50U, .max_counter = 0xffU, .ignore_quality_flag = true}, { 0 }, { 0 }}},  \
@@ -212,6 +220,7 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
 static safety_config hyundai_canfd_init(uint16_t param) {
   const uint16_t HYUNDAI_PARAM_CANFD_LKA_STEER_MSG_ALT = 128;
   const uint16_t HYUNDAI_PARAM_CANFD_ALT_BUTTONS = 32;
+  const uint16_t HYUNDAI_PARAM_JUNPILOT_PV5 = 1024;
 
   static const CanMsg HYUNDAI_CANFD_LKA_STEER_MSG_TX_MSGS[] = {
     HYUNDAI_CANFD_LKA_STEER_MSG_COMMON_TX_MSGS(0, 1)
@@ -260,6 +269,7 @@ static safety_config hyundai_canfd_init(uint16_t param) {
 
   safety_setup.hyundai_canfd_alt_buttons = GET_FLAG(param, HYUNDAI_PARAM_CANFD_ALT_BUTTONS);
   safety_setup.hyundai_canfd_lka_steer_msg_alt = GET_FLAG(param, HYUNDAI_PARAM_CANFD_LKA_STEER_MSG_ALT);
+  const bool junpilot_pv5 = GET_FLAG(param, HYUNDAI_PARAM_JUNPILOT_PV5);
 
   safety_config ret;
   if (safety_setup.hyundai_longitudinal) {
@@ -344,13 +354,20 @@ static safety_config hyundai_canfd_init(uint16_t param) {
         HYUNDAI_CANFD_SCC_ADDR_CHECK(2)
       };
 
+      static const RxCheck hyundai_canfd_pv5_rx_checks[] = {
+        HYUNDAI_CANFD_PV5_RX_CHECKS(0)
+        HYUNDAI_CANFD_SCC_ADDR_CHECK(2)
+      };
+
       static const CanMsg hyundai_canfd_lfa_steering_camera_scc_tx_msgs[] = {
         HYUNDAI_CANFD_LFA_STEERING_CAMERA_SCC_TX_MSGS(false)
       };
 
       SET_TX_MSGS(hyundai_canfd_lfa_steering_camera_scc_tx_msgs, ret);
 
-      if (safety_setup.hyundai_canfd_alt_buttons) {
+      if (junpilot_pv5 && safety_setup.hyundai_canfd_alt_buttons) {
+        SET_RX_CHECKS(hyundai_canfd_pv5_rx_checks, ret);
+      } else if (safety_setup.hyundai_canfd_alt_buttons) {
         SET_RX_CHECKS(hyundai_canfd_alt_buttons_rx_checks, ret);
       } else {
         SET_RX_CHECKS(hyundai_canfd_rx_checks, ret);

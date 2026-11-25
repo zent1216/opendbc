@@ -86,7 +86,7 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
 
   // cruise buttons
   const unsigned int button_addr = safety_setup.hyundai_canfd_alt_buttons ? 0x1aaU : 0x1cfU;
-  if (msg_matches(msg, button_addr, pt_bus)) {
+  if (!safety_setup.hyundai_canfd_junpilot_pv5 && msg_matches(msg, button_addr, pt_bus)) {
     bool main_button = false;
     uint8_t cruise_button = 0U;
     if (msg_matches(msg, 0x1cfU, pt_bus)) {
@@ -97,6 +97,14 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
       main_button = GET_BIT(msg, 34U);
     }
     hyundai_common_cruise_buttons_check(cruise_button, main_button);
+  }
+
+  // junpilot (PV5): cruise buttons live in CRUISE_BUTTONS_ALT2 (0x10B) byte 10 low nibble, not in 0x1AA
+  // 1=RES_ACCEL, 2=SET_DECEL, 3=GAP_DIST, 8=cruise main toggle (confirmed on a real car)
+  if (safety_setup.hyundai_canfd_junpilot_pv5 && msg_matches(msg, 0x10bU, pt_bus)) {
+    const uint8_t pv5_btn = msg->data[10] & 0xFU;
+    const uint8_t pv5_cruise_button = (pv5_btn <= 4U) ? pv5_btn : 0U;
+    hyundai_common_cruise_buttons_check(pv5_cruise_button, pv5_btn == 8U);
   }
 
   // junpilot (PV5): LFA button (CRUISE_BUTTONS_ALT2 0x10B, byte 10 bit 7) starts lateral-only control.

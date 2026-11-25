@@ -291,12 +291,18 @@ class CarState(CarStateBase):
     prev_cruise_buttons = self.cruise_buttons[-1]
     prev_main_buttons = self.main_buttons[-1]
     prev_lda_button = self.lda_button
-    self.cruise_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["CRUISE_BUTTONS"])
-    self.main_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["ADAPTIVE_CRUISE_MAIN_BTN"])
+    if self.CP.carFingerprint != CAR.KIA_PV5:
+      self.cruise_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["CRUISE_BUTTONS"])
+      self.main_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["ADAPTIVE_CRUISE_MAIN_BTN"])
     self.lda_button = cp.vl[self.cruise_btns_msg_canfd]["LDA_BTN"]
     if self.CP.carFingerprint == CAR.KIA_PV5:
-      # 준파일럿: PV5 차선중앙(LFA) 버튼은 CRUISE_BUTTONS_ALT2(0x10B)에 있음 (실차 rlog 확인)
+      # 준파일럿: PV5 버튼은 CRUISE_BUTTONS_ALT2(0x10B)에 있음 (실차 rlog 확인)
+      # 1=RES+, 2=SET-, 3=차간거리, 8=크루즈 켜기/끄기, LFA_BTN=차선중앙
       self.lda_button = cp.vl["CRUISE_BUTTONS_ALT2"]["LFA_BTN"]
+      raw = [int(v) for v in cp.vl_all["CRUISE_BUTTONS_ALT2"]["CRUISE_BUTTONS"]]
+      if raw:
+        self.cruise_buttons.extend([v if v <= 4 else 0 for v in raw])
+        self.main_buttons.extend([1 if v == 8 else 0 for v in raw])
     self.buttons_counter = cp.vl[self.cruise_btns_msg_canfd]["COUNTER"]
     ret.accFaulted = cp.vl["TCS"]["ACCEnable"] != 0  # 0 ACC CONTROL ENABLED, 1-3 ACC CONTROL DISABLED
 

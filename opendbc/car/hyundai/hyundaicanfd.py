@@ -108,6 +108,9 @@ def create_mdps_to_camera(packer, CAN, mdps, cam_lfa_alt):
   return packer.make_can_msg("MDPS", CAN.CAM, values)
 
 
+HANDS_OFF_ALERTS = (1, 2, 5, 6, 10, 21, 22)  # CCNC 0x161 ALERTS_2: 핸들 잡으세요·주의 경고 단계
+
+
 def create_ccnc_display(packer, CAN, ccnc, lat_active, hud, left_blinker, right_blinker, blink_on):
   """준파일럿: 계기판 표시(CCNC 0x161)에 오픈파일럿이 인식한 차선과 조향 상태를 반영.
   조향 중일 때만 바꾸고, 나머지(경고·소리·속도·앞차 등)는 카메라 값 그대로."""
@@ -127,6 +130,14 @@ def create_ccnc_display(packer, CAN, ccnc, lat_active, hud, left_blinker, right_
         values[key] = 0
     values["LCA_LEFT_ARROW"] = 2 if left_blinker else 0
     values["LCA_RIGHT_ARROW"] = 2 if right_blinker else 0
+    # 순정 '핸들을 잡으세요'(핸즈오프)·주의 경고는 숨김: 오파 운전자 모니터링 카메라가 대신 감시함 (당근파일럿 방식)
+    if values["ALERTS_2"] in HANDS_OFF_ALERTS:
+      values["ALERTS_2"] = 0
+      values["DAW_ICON"] = 0
+    if values["ALERTS_1"] == 0:  # 다른 큰 경고가 없을 때만 경고음도 끔
+      values["SOUNDS_1"] = 0
+      values["SOUNDS_2"] = 0
+      values["SOUNDS_4"] = 0
   return packer.make_can_msg("CCNC_0x161", CAN.ECAN, values)
 
 

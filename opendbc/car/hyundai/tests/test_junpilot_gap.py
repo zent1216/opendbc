@@ -142,3 +142,11 @@ def test_ccnc_display_shows_openpilot_lanes():
   p2.update([(1, [CanData(0x161, bytes(dat), 0)])])
   o = p2.vl["CCNC_0x161"]
   assert o["LFA_ICON"] == 2 and o["LANELINE_LEFT"] == 2 and o["LANELINE_RIGHT"] == 0 and o["LCA_LEFT_ARROW"] == 2
+  # 오파 조향 중에는 순정 '핸들을 잡으세요' 경고와 소리를 숨김
+  v2 = dict(v, ALERTS_2=1, SOUNDS_1=2, ALERTS_1=0)
+  _, dat, _ = hyundaicanfd.create_ccnc_display(packer, CAN, v2, True, Hud, False, False, True)
+  p2.update([(2, [CanData(0x161, bytes(dat), 0)])])
+  assert p2.vl["CCNC_0x161"]["ALERTS_2"] == 0 and p2.vl["CCNC_0x161"]["SOUNDS_1"] == 0
+  _, dat, _ = hyundaicanfd.create_ccnc_display(packer, CAN, v2, False, Hud, False, False, True)
+  p2.update([(3, [CanData(0x161, bytes(dat), 0)])])
+  assert p2.vl["CCNC_0x161"]["ALERTS_2"] == 1  # 오파가 조향 안 할 땐 순정 그대로

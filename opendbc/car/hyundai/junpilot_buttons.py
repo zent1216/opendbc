@@ -106,8 +106,8 @@ class JunpilotGapSetter:
   """준파일럿: 크루즈가 켜질 때 순정 차간거리 단계를 설정값으로 맞춘다.
 
   - 지금 단계(1~4)가 원하는 단계와 다르면 차간거리 버튼을 GAP_INTERVAL마다 한 번씩 누른다.
-  - 운전자가 핸들 버튼으로 차간거리를 바꾸면 이번 시동 동안은 더 건드리지 않는다.
-  - 크루즈를 껐다 켜면 다시 맞춘다 (운전자가 바꾼 경우 제외).
+  - 운전자가 핸들 버튼으로 차간거리를 바꾸면 그대로 둔다. 크루즈를 다시 켜거나, 원하는 단계가 새로 바뀌면
+    (자가 학습이 운전자 선택을 배웠거나 상황이 바뀜) 다시 맞춘다.
   """
 
   def __init__(self):
@@ -121,15 +121,17 @@ class JunpilotGapSetter:
   def update(self, want_gap: int, cur_gap: int, cruise_enabled: bool, driver_gap_pressed: bool) -> bool:
     """매 제어 주기 호출. 이번 주기에 차간거리 버튼을 보내야 하면 True."""
     self.t += DT_CTRL
-    if driver_gap_pressed:
-      self.driver_touched = True
     if cruise_enabled and not self.prev_enabled:
       self.presses = 0
+      self.driver_touched = False
       self.next_press_t = self.t + 1.0  # 크루즈가 켜진 직후 1초는 기다림
     self.prev_enabled = cruise_enabled
-    if want_gap != self.prev_want:  # 원하는 단계가 바뀌면(자동 차간거리) 다시 맞춤
+    if want_gap != self.prev_want:  # 원하는 단계가 바뀌면(자동 차간거리·자가 학습) 다시 맞춤
       self.presses = 0
       self.prev_want = want_gap
+      self.driver_touched = False
+    if driver_gap_pressed:
+      self.driver_touched = True
 
     if not cruise_enabled or self.driver_touched or not (1 <= want_gap <= 4) or not (1 <= cur_gap <= 4):
       return False

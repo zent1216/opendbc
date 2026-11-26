@@ -54,6 +54,11 @@ def process_hud_alert(enabled, fingerprint, hud_control):
 ANGLE_FILTER_TAU = 0.05  # 20Hz 계단을 이어주는 정도
 DRIVER_TQ_TAU = 0.12
 ANGLE_OVERRIDE_TORQUE = 250.
+# 저속 회전 양보
+TURN_YIELD_SPEED = 30. / 3.6   # m/s
+TURN_YIELD_TORQUE = 80.        # 깜빡이를 켠 상태에서 이만큼만 돌려도 양보 (평소 250)
+TURN_YIELD_GAIN = 20.          # 양보 중 조향 힘 (평소 234, 운전자 개입 85)
+TURN_YIELD_GAIN_DOWN = 8.      # 프레임당, 약 0.3초 만에 내려감
 
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
@@ -78,6 +83,7 @@ class CarController(CarControllerBase):
     self.angle_gain = 0.0
     self.angle_target_f = 0.0
     self.driver_tq_f = 0.0
+    self.turn_yield = False
     self.lfa_alt_counter = 0
     self.VM = VehicleModel(CP) if self.angle_control else None
 
@@ -101,25 +107,38 @@ class CarController(CarControllerBase):
     if self.angle_control:
       apply_torque = 0
       apply_steer_req = False
+      if CC.latActive:
+        self.driver_tq_f += DT_CTRL / (DRIVER_TQ_TAU + DT_CTRL) * (CS.out.steeringTorque - self.driver_tq_f)
+      else:
+        self.driver_tq_f = 0.0
+      tq = abs(self.driver_tq_f)
+
+      # 저속 회전 양보: 30km/h 아래에서 깜빡이를 켜고 핸들을 돌리면 운전자에게 핸들을 거의 다 넘김
+      # (골목·주차장 진입처럼 크게 꺾을 때 오파가 버텨서 핸들이 무거운 문제). 깜빡이를 끄거나 손을 놓으면 서서히 돌려받음
+      low_turn = CC.latActive and CS.out.vEgoRaw < TURN_YIELD_SPEED and (CS.out.leftBlinker or CS.out.rightBlinker)
+      if low_turn and tq > TURN_YIELD_TORQUE:
+        self.turn_yield = True
+      elif not low_turn or tq < TURN_YIELD_TORQUE * 0.5:
+        self.turn_yield = False
+
       # 모델은 20Hz라 목표 각도가 50ms마다 계단처럼 바뀜 → 100Hz로 부드럽게 이어줌.
       # (큰 잔떨림은 modeld가 지연을 보정하면서 곡률을 부드럽게 함)
-      if CC.latActive:
+      if CC.latActive and not self.turn_yield:
         self.angle_target_f += DT_CTRL / (ANGLE_FILTER_TAU + DT_CTRL) * (actuators.steeringAngleDeg - self.angle_target_f)
       else:
-        self.angle_target_f = CS.out.steeringAngleDeg
+        self.angle_target_f = CS.out.steeringAngleDeg  # 양보 중엔 운전자가 돌린 각도를 그대로 따라감 (버티지 않음)
       self.apply_angle_last = apply_steer_angle_limits_vm(self.angle_target_f, self.apply_angle_last, CS.out.vEgoRaw,
                                                           CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
       # 조향 힘(토크 비율): 당근파일럿처럼 운전자가 확실히 돌리면 천천히 낮추고, 손을 놓으면 서서히 회복.
       # 손만 얹어도 토크가 100~300 나와서 순간값으로 판단하면 힘이 수시로 빠졌다 들어왔다 함
       if CC.latActive:
-        self.driver_tq_f += DT_CTRL / (DRIVER_TQ_TAU + DT_CTRL) * (CS.out.steeringTorque - self.driver_tq_f)
-        tq = abs(self.driver_tq_f)
-        if tq > ANGLE_OVERRIDE_TORQUE:
+        if self.turn_yield:
+          self.angle_gain = max(self.angle_gain - TURN_YIELD_GAIN_DOWN, TURN_YIELD_GAIN)
+        elif tq > ANGLE_OVERRIDE_TORQUE:
           self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, self.params.ANGLE_TORQUE_GAIN_OVERRIDE)
         elif tq < ANGLE_OVERRIDE_TORQUE * 0.6:
           self.angle_gain = min(self.angle_gain + self.params.ANGLE_TORQUE_GAIN_UP, self.params.ANGLE_TORQUE_GAIN)
       else:
-        self.driver_tq_f = 0.0
         self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, 0.0)
 
     self.apply_torque_last = apply_torque

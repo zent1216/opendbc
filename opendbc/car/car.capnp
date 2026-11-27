@@ -301,6 +301,8 @@ struct CarState {
   junpilotNaviLimit @62 :Float32;  # m/s
   junpilotNaviKind @63 :UInt8;     # 1=과속카메라, 2=구간단속
   junpilotCruiseGap @64 :UInt8;    # 순정 크루즈 차간거리 단계 (1~4, 0이면 모름)
+  junpilotCutInSpeed @65 :Float32; # 옆 차선에서 끼어드는 차의 속도 (m/s, 0이면 없음)
+  junpilotCutInDist @66 :Float32;  # 그 차까지 거리 (m)
 }
 
 # ******* radar state @ 20hz *******

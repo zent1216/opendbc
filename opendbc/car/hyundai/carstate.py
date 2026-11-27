@@ -6,6 +6,7 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, DT_CTRL, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai.junpilot_navi import Pv5Navi, message_fresh
+from opendbc.car.hyundai.junpilot_cutin import CutInDetector, RADAR_ADDRS, RADAR_MSG
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, CAR, DBC, Buttons, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
@@ -65,6 +66,7 @@ class CarState(CarStateBase):
     self.is_metric = False
     self.buttons_counter = 0
     self.jp_navi = Pv5Navi() if CP.carFingerprint == CAR.KIA_PV5 else None
+    self.jp_cutin = CutInDetector()
 
     self.cruise_info = {}
 
@@ -338,6 +340,12 @@ class CarState(CarStateBase):
                                         ret.vEgo, DT_CTRL)
       ret.junpilotNaviKind, ret.junpilotNaviLimit = kind, limit
 
+    # 준파일럿: 옆 차선 끼어들기 감지 (레이더 트랙)
+    if Bus.radar in can_parsers:
+      cpr = can_parsers[Bus.radar]
+      tracks = [cpr.vl[RADAR_MSG.format(a)] for a in RADAR_ADDRS]
+      ret.junpilotCutInSpeed, ret.junpilotCutInDist = self.jp_cutin.update(tracks, ret.vEgo, DT_CTRL)
+
     return ret
 
   def get_can_parsers_canfd(self, CP):
@@ -360,6 +368,9 @@ class CarState(CarStateBase):
     }
     if pv5:
       parsers[Bus.alt] = CANParser(DBC[CP.carFingerprint][Bus.pt], [(PV5_STATUS_MSG, math.nan)], CanBus(CP).ACAN)
+      # 준파일럿: 전방 레이더 트랙 (끼어들기 감지용). 없어도 CAN 오류가 나지 않게 생존 검사 제외
+      parsers[Bus.radar] = CANParser("hyundai_canfd_radar_generated", [(RADAR_MSG.format(a), math.nan) for a in RADAR_ADDRS],
+                                     CanBus(CP).ACAN)
       # 준파일럿: PV5는 이 두 메시지의 카운터가 규칙대로 늘지 않음 (실차 rlog 확인, 당근파일럿도 카운터 검사 제외)
       pt = parsers[Bus.pt]
       for name in PV5_NO_COUNTER:

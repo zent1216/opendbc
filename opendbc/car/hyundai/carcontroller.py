@@ -51,7 +51,14 @@ def process_hud_alert(enabled, fingerprint, hud_control):
 
 
 # 준파일럿 각도 조향
-ANGLE_FILTER_TAU = 0.05  # 20Hz 계단을 이어주는 정도
+ANGLE_FILTER_TAU = 0.05  # 20Hz 계단을 이어주는 정도 (고속)
+# 저속 부드럽게: 속도(km/h)별 목표 각도 필터 시간상수(초)·무시할 작은 변화(도)·조향 힘
+FILTER_SPEED_KPH = [0., 10., 20., 40., 60.]
+ANGLE_FILTER_TAUS = [0.15, 0.13, 0.10, 0.06, ANGLE_FILTER_TAU]
+LOW_SPEED_KPH = [0., 10., 20., 30.]
+ANGLE_DEADBAND = [0.4, 0.3, 0.15, 0.0]
+GAIN_SPEED_KPH = [0., 10., 30., 60.]
+GAIN_BY_SPEED = [150., 170., 215., 234.]
 DRIVER_TQ_TAU = 0.12
 ANGLE_OVERRIDE_TORQUE = 250.
 # 저속 회전 양보
@@ -84,6 +91,7 @@ class CarController(CarControllerBase):
     self.angle_target_f = 0.0
     self.driver_tq_f = 0.0
     self.turn_yield = False
+    self.angle_hold = 0.0
     self.lfa_alt_counter = 0
     self.VM = VehicleModel(CP) if self.angle_control else None
 
@@ -123,10 +131,21 @@ class CarController(CarControllerBase):
 
       # 모델은 20Hz라 목표 각도가 50ms마다 계단처럼 바뀜 → 100Hz로 부드럽게 이어줌.
       # (큰 잔떨림은 modeld가 지연을 보정하면서 곡률을 부드럽게 함)
+      # 저속에서는 같은 곡률 잔떨림도 핸들 각도로는 크게 커져서 '두두둑' 하고 계속 미세 조정함 (실차 로그: 20km/h 아래에서
+      # 모델 목표가 50ms마다 ±0.5도씩 오락가락). 저속일수록 ① 아주 작은 변화는 무시(유격)하고 ② 더 부드럽게 이어 줌
+      v_kph = CS.out.vEgoRaw * 3.6
       if CC.latActive and not self.turn_yield:
-        self.angle_target_f += DT_CTRL / (ANGLE_FILTER_TAU + DT_CTRL) * (actuators.steeringAngleDeg - self.angle_target_f)
+        target = actuators.steeringAngleDeg
+        db = float(np.interp(v_kph, LOW_SPEED_KPH, ANGLE_DEADBAND))
+        if target > self.angle_hold + db:
+          self.angle_hold = target - db
+        elif target < self.angle_hold - db:
+          self.angle_hold = target + db
+        tau = float(np.interp(v_kph, FILTER_SPEED_KPH, ANGLE_FILTER_TAUS))
+        self.angle_target_f += DT_CTRL / (tau + DT_CTRL) * (self.angle_hold - self.angle_target_f)
       else:
         self.angle_target_f = CS.out.steeringAngleDeg  # 양보 중엔 운전자가 돌린 각도를 그대로 따라감 (버티지 않음)
+        self.angle_hold = CS.out.steeringAngleDeg
       self.apply_angle_last = apply_steer_angle_limits_vm(self.angle_target_f, self.apply_angle_last, CS.out.vEgoRaw,
                                                           CS.out.steeringAngleDeg, CC.latActive, self.params, self.VM)
       # 조향 힘(토크 비율): 당근파일럿처럼 운전자가 확실히 돌리면 천천히 낮추고, 손을 놓으면 서서히 회복.
@@ -137,7 +156,12 @@ class CarController(CarControllerBase):
         elif tq > ANGLE_OVERRIDE_TORQUE:
           self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, self.params.ANGLE_TORQUE_GAIN_OVERRIDE)
         elif tq < ANGLE_OVERRIDE_TORQUE * 0.6:
-          self.angle_gain = min(self.angle_gain + self.params.ANGLE_TORQUE_GAIN_UP, self.params.ANGLE_TORQUE_GAIN)
+          # 저속은 조향 힘을 낮춰 덜 딱딱하게 (사람처럼 느슨하게 잡음, 운전자가 끼어들기도 쉬움)
+          max_gain = float(np.interp(v_kph, GAIN_SPEED_KPH, GAIN_BY_SPEED))
+          if self.angle_gain > max_gain:
+            self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_UP, max_gain)
+          else:
+            self.angle_gain = min(self.angle_gain + self.params.ANGLE_TORQUE_GAIN_UP, max_gain)
       else:
         self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, 0.0)
 

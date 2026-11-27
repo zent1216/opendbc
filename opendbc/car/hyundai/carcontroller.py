@@ -65,7 +65,11 @@ GAIN_BY_SPEED = [150., 170., 215., 234.]
 DRIVER_TQ_TAU = 0.12
 ANGLE_OVERRIDE_TORQUE = 250.
 # 저속 회전 양보
-TURN_YIELD_SPEED = 30. / 3.6   # m/s
+TURN_YIELD_SPEED = 30. / 3.6   # m/s, 기본값 (설정에서 0~40km/h로 바꿈)
+TURN_YIELD_RELEASE_TIME = 1.5  # s, 양보가 끝난 뒤 이 시간에 걸쳐 천천히 다시 잡음 (회전 끝 깜빡이가 꺼질 때 확 꺾이던 문제)
+TURN_YIELD_RELEASE_TAU = 0.8   # s, 그동안 목표 각도를 이만큼 천천히 따라감
+TURN_YIELD_RELEASE_GAIN_UP = 0.6
+TURN_YIELD_RELEASE_RATE = 30.  # deg/s, 그동안 핸들 각도를 이보다 빨리 바꾸지 않음
 TURN_YIELD_TORQUE = 80.        # 깜빡이를 켠 상태에서 이만큼만 돌려도 양보 (평소 250)
 TURN_YIELD_GAIN = 20.          # 양보 중 조향 힘 (평소 234, 운전자 개입 85)
 TURN_YIELD_GAIN_DOWN = 8.      # 프레임당, 약 0.3초 만에 내려감
@@ -101,6 +105,7 @@ class CarController(CarControllerBase):
     self.angle_target_f = 0.0
     self.driver_tq_f = 0.0
     self.turn_yield = False
+    self.turn_release = 0.0  # 양보 끝난 뒤 남은 천천히 잡기 시간
     self.angle_hold = 0.0
     self.lfa_alt_counter = 0
     self.VM = VehicleModel(CP) if self.angle_control else None
@@ -153,11 +158,19 @@ class CarController(CarControllerBase):
 
       # 저속 회전 양보: 30km/h 아래에서 깜빡이를 켜고 핸들을 돌리면 운전자에게 핸들을 거의 다 넘김
       # (골목·주차장 진입처럼 크게 꺾을 때 오파가 버텨서 핸들이 무거운 문제). 깜빡이를 끄거나 손을 놓으면 서서히 돌려받음
-      low_turn = CC.latActive and CS.out.vEgoRaw < TURN_YIELD_SPEED and (CS.out.leftBlinker or CS.out.rightBlinker)
+      yield_speed = float(getattr(CC.cruiseControl, "junpilotTurnYieldSpeed", TURN_YIELD_SPEED))
+      low_turn = CC.latActive and CS.out.vEgoRaw < yield_speed and (CS.out.leftBlinker or CS.out.rightBlinker)
+      was_yield = self.turn_yield
       if low_turn and tq > TURN_YIELD_TORQUE:
         self.turn_yield = True
-      elif not low_turn or tq < TURN_YIELD_TORQUE * 0.5:
-        self.turn_yield = False
+      elif self.turn_yield:
+        # 핸들을 풀면서 깜빡이가 자동으로 꺼져도, 운전자가 아직 핸들을 잡고 있으면 양보를 유지
+        if not CC.latActive or tq < TURN_YIELD_TORQUE * 0.5 or CS.out.vEgoRaw > yield_speed + 10. / 3.6:
+          self.turn_yield = False
+      if was_yield and not self.turn_yield:
+        self.turn_release = TURN_YIELD_RELEASE_TIME
+      elif self.turn_release > 0:
+        self.turn_release = max(self.turn_release - DT_CTRL, 0.0) if CC.latActive else 0.0
 
       # 모델은 20Hz라 목표 각도가 50ms마다 계단처럼 바뀜 → 100Hz로 부드럽게 이어줌.
       # (큰 잔떨림은 modeld가 지연을 보정하면서 곡률을 부드럽게 함)
@@ -172,7 +185,12 @@ class CarController(CarControllerBase):
         elif target < self.angle_hold - db:
           self.angle_hold = target + db
         tau = float(np.interp(v_kph, FILTER_SPEED_KPH, ANGLE_FILTER_TAUS))
-        self.angle_target_f += DT_CTRL / (tau + DT_CTRL) * (self.angle_hold - self.angle_target_f)
+        if self.turn_release > 0:
+          tau = max(tau, TURN_YIELD_RELEASE_TAU)  # 회전 직후: 차선 쪽으로 천천히
+        step = DT_CTRL / (tau + DT_CTRL) * (self.angle_hold - self.angle_target_f)
+        if self.turn_release > 0:
+          step = float(np.clip(step, -TURN_YIELD_RELEASE_RATE * DT_CTRL, TURN_YIELD_RELEASE_RATE * DT_CTRL))
+        self.angle_target_f += step
       else:
         self.angle_target_f = CS.out.steeringAngleDeg  # 양보 중엔 운전자가 돌린 각도를 그대로 따라감 (버티지 않음)
         self.angle_hold = CS.out.steeringAngleDeg
@@ -188,10 +206,11 @@ class CarController(CarControllerBase):
         elif tq < ANGLE_OVERRIDE_TORQUE * 0.6:
           # 저속은 조향 힘을 낮춰 덜 딱딱하게 (사람처럼 느슨하게 잡음, 운전자가 끼어들기도 쉬움)
           max_gain = float(np.interp(v_kph, GAIN_SPEED_KPH, GAIN_BY_SPEED))
+          gain_up = TURN_YIELD_RELEASE_GAIN_UP if self.turn_release > 0 else self.params.ANGLE_TORQUE_GAIN_UP
           if self.angle_gain > max_gain:
             self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_UP, max_gain)
           else:
-            self.angle_gain = min(self.angle_gain + self.params.ANGLE_TORQUE_GAIN_UP, max_gain)
+            self.angle_gain = min(self.angle_gain + gain_up, max_gain)
       else:
         self.angle_gain = max(self.angle_gain - self.params.ANGLE_TORQUE_GAIN_DOWN, 0.0)
 

@@ -5,6 +5,9 @@ from opendbc.car.lateral import apply_driver_steer_torque_limits, apply_steer_an
 from opendbc.car.vehicle_model import VehicleModel
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai.junpilot_buttons import JunpilotButtonFollower, JunpilotGapSetter, GAP_BUTTON, BURST as JP_BURST
+
+JP_PRESS_FRAMES = 3    # 한 번 누를 때 버튼 프레임 수 (원래 프레임 간격 40ms → 약 0.12초)
+JP_RELEASE_FRAMES = 1  # 누름 사이 떼는 프레임 수
 from opendbc.car.hyundai import hyundaicanfd, hyundaican
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, Buttons, CarControllerParams, CAR
@@ -83,6 +86,13 @@ class CarController(CarControllerBase):
     self.jp_gap = JunpilotGapSetter()
     self.jp_pv5 = CP.carFingerprint == CAR.KIA_PV5
     self.jp_resume_frame = -100
+    # 준파일럿 (PV5) 버튼 누르기: 원래 0x10B는 40ms마다 짝수 카운터로 옴. 그 사이에 홀수 카운터(원래+1)로
+    # 버튼 프레임을 끼워 넣어 카운터가 겹치지 않게 함 (예전엔 한꺼번에 5개를 보내 원래 프레임과 겹쳐 절반쯤 무시됨)
+    self.jp_btn_queue: list[int] = []
+    self.jp_btn_cur = Buttons.NONE
+    self.jp_btn_hold = 0      # 이 버튼을 더 보낼 원래 프레임 수
+    self.jp_btn_release = 0   # 다음 누름 전 쉬는 원래 프레임 수
+    self.jp_btn_last_cnt = -1
     self.cancel_counter = 0
     # 준파일럿: 각도 조향 차 (PV5)
     self.angle_control = bool(CP.flags & HyundaiFlags.ANGLE_CONTROL)
@@ -94,6 +104,26 @@ class CarController(CarControllerBase):
     self.angle_hold = 0.0
     self.lfa_alt_counter = 0
     self.VM = VehicleModel(CP) if self.angle_control else None
+
+  def _pv5_press(self, CS):
+    """원래 0x10B 프레임이 새로 올 때마다 한 번씩: 누르는 중이면 카운터+1로 버튼 프레임을 하나 보냄."""
+    cnt = int(CS.pv5_btn_msg.get("COUNTER", 0))
+    if cnt == self.jp_btn_last_cnt:
+      return []
+    self.jp_btn_last_cnt = cnt
+    if self.jp_btn_hold == 0 and self.jp_btn_release > 0:
+      self.jp_btn_release -= 1
+      return []
+    if self.jp_btn_hold == 0:
+      if not self.jp_btn_queue:
+        return []
+      self.jp_btn_cur = self.jp_btn_queue.pop(0)
+      self.jp_btn_hold = JP_PRESS_FRAMES
+    self.jp_btn_hold -= 1
+    if self.jp_btn_hold == 0:
+      self.jp_btn_release = JP_RELEASE_FRAMES
+    self.last_button_frame = self.frame
+    return [hyundaicanfd.create_pv5_buttons(self.packer, self.CAN, CS.pv5_btn_msg, cnt + 1, self.jp_btn_cur)]
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -352,11 +382,9 @@ class CarController(CarControllerBase):
           if self.frame - self.jp_resume_frame >= 30:
             btn = Buttons.RES_ACCEL
             self.jp_resume_frame = self.frame
-        if btn != Buttons.NONE:
-          cnt = int(CS.pv5_btn_msg.get("COUNTER", 0))
-          for i in range(JP_BURST):
-            can_sends.append(hyundaicanfd.create_pv5_buttons(self.packer, self.CAN, CS.pv5_btn_msg, cnt + 1 + i, btn))
-          self.last_button_frame = self.frame
+        if btn != Buttons.NONE and len(self.jp_btn_queue) < 2:
+          self.jp_btn_queue.append(btn)
+        can_sends.extend(self._pv5_press(CS))
 
       # 준파일럿: 순정 크루즈 설정속도를 목표값으로 맞춤 (취소/재개 버튼을 보낼 때는 쉼)
       elif not (self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS):

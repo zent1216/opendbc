@@ -19,7 +19,7 @@ from opendbc.car.hyundai.values import Buttons
 
 DT_CTRL = 0.01
 
-BASE_INTERVAL = 0.15     # 버튼 누름 간격(초)
+BASE_INTERVAL = 0.20     # 버튼 누름 간격(초): PV5는 한 번 누르는 데 약 0.16초 (0x10B 3프레임 + 떼기 1프레임)
 MAX_INFLIGHT = 4         # 반영을 기다리는 누름 최대 수
 MAX_INTERVAL = 1.20
 BURST = 5                # 한 번 누를 때 보내는 같은 메시지 수 (실차 로그로 조정 예정)

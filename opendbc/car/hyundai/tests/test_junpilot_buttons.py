@@ -101,3 +101,35 @@ def test_fast_with_slow_cluster():
     if set_kph == 60 and not queue:
       break
   assert set_kph == 60 and t < 6.0
+
+
+def test_pv5_press_uses_odd_counters_between_stock():
+  """PV5: 원래 0x10B(짝수 카운터, 40ms)가 올 때마다 카운터+1로 버튼 프레임을 하나씩, 3프레임 누르고 1프레임 뗌."""
+  from opendbc.car.hyundai.carcontroller import CarController, JP_PRESS_FRAMES
+  from opendbc.car.hyundai.values import Buttons
+
+  class FakeCC(CarController):
+    def __init__(self):  # 버튼 관련 상태만
+      self.jp_btn_queue, self.jp_btn_cur, self.jp_btn_hold, self.jp_btn_release, self.jp_btn_last_cnt = [], 0, 0, 0, -1
+      self.frame = 0
+      self.packer = None
+      self.CAN = None
+
+  import opendbc.car.hyundai.carcontroller as ccmod
+  sent = []
+  orig = ccmod.hyundaicanfd.create_pv5_buttons
+  ccmod.hyundaicanfd.create_pv5_buttons = lambda packer, CAN, msg, cnt, btn: sent.append((cnt, btn)) or (0x10B, b"", 2)
+  try:
+    c = FakeCC()
+    c.jp_btn_queue = [Buttons.SET_DECEL, Buttons.SET_DECEL]
+
+    class CS:
+      pv5_btn_msg = {"COUNTER": 0}
+    for stock in range(0, 40, 2):
+      CS.pv5_btn_msg = {"COUNTER": stock}
+      for _ in range(4):  # 같은 원래 프레임 동안 여러 주기 호출돼도 한 번만
+        c._pv5_press(CS)
+  finally:
+    ccmod.hyundaicanfd.create_pv5_buttons = orig
+  assert [cnt for cnt, _ in sent] == [1, 3, 5, 9, 11, 13]  # 3프레임 누르고 7(=6+1)은 뗌
+  assert all(cnt % 2 == 1 for cnt, _ in sent) and len(sent) == 2 * JP_PRESS_FRAMES

@@ -287,7 +287,12 @@ class CarController(CarControllerBase):
                                                         self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT))
 
     # LFA and HDA icons
-    if self.frame % 5 == 0 and (not lka_steering or lka_steering_long):
+    # 준파일럿 (각도 조향): 카메라가 보낸 값을 그대로 복사하고 LFA 아이콘만 실제 조향 상태로
+    # (직접 만들면 HDA·단속 표시용 다른 값이 0이 되고, LFA를 꺼도 아이콘이 켜져 있었음)
+    if self.CP.flags & HyundaiFlags.ANGLE_CONTROL:
+      for frame in CS.lfahda_frames:
+        can_sends.append(hyundaicanfd.create_lfahda_copy(self.packer, self.CAN, frame, CC.latActive))
+    elif self.frame % 5 == 0 and (not lka_steering or lka_steering_long):
       can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled))
 
     # blinkers

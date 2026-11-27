@@ -134,9 +134,14 @@ def test_ccnc_display_shows_openpilot_lanes():
     rightLaneVisible = False
     leftLaneDepart = False
     rightLaneDepart = False
-  # 조향 안 할 때는 원본 그대로
+  # 조향 안 할 때는 LFA 아이콘만 끄고 나머지는 원본 그대로
   addr, dat, bus = hyundaicanfd.create_ccnc_display(packer, CAN, v, False, Hud, False, False, True)
-  assert (addr, bus) == (0x161, CAN.ECAN) and bytes(dat) == real
+  assert (addr, bus) == (0x161, CAN.ECAN) and v["LFA_ICON"] == 1
+  p0 = CANParser(dbc, [("CCNC_0x161", 0)], 0)
+  p0.update([(1, [CanData(0x161, bytes(dat), 0)])])
+  out = dict(p0.vl["CCNC_0x161"])
+  assert out.pop("LFA_ICON") == 0
+  assert all(out[k] == v[k] for k in out if k != "CHECKSUM")
   _, dat, _ = hyundaicanfd.create_ccnc_display(packer, CAN, v, True, Hud, True, False, True)
   p2 = CANParser(dbc, [("CCNC_0x161", 0)], 0)
   p2.update([(1, [CanData(0x161, bytes(dat), 0)])])
@@ -150,3 +155,19 @@ def test_ccnc_display_shows_openpilot_lanes():
   _, dat, _ = hyundaicanfd.create_ccnc_display(packer, CAN, v2, False, Hud, False, False, True)
   p2.update([(3, [CanData(0x161, bytes(dat), 0)])])
   assert p2.vl["CCNC_0x161"]["ALERTS_2"] == 1  # 오파가 조향 안 할 땐 순정 그대로
+
+
+def test_lfahda_copy_keeps_stock_bits():
+  """카메라 0x1E0을 그대로 복사하고 LFA 아이콘만 바꿈 (실차 값)."""
+  dbc = DBC[CAR.KIA_PV5][Bus.pt]
+  packer = CANPacker(dbc)
+  CAN = CanBus(None, fingerprint={0: {}, 1: {}, 2: {}})
+  real = bytes(packer.make_can_msg("LFAHDA_CLUSTER", 2, {"COUNTER": 0x4a, "NEW_SIGNAL_5": 1, "LFA_ICON": 2})[1])
+  assert real[2:].hex() == "4a02000001000000000000000000"  # 실차 rlog 바이트와 같음
+  p = CANParser(dbc, [("LFAHDA_CLUSTER", 0)], 2)
+  p.update([(1, [CanData(0x1E0, real, 2)])])
+  v = dict(p.vl["LFAHDA_CLUSTER"])
+  _, on, _ = hyundaicanfd.create_lfahda_copy(packer, CAN, v, True)
+  _, off, _ = hyundaicanfd.create_lfahda_copy(packer, CAN, v, False)
+  assert bytes(on)[2:] == real[2:]           # 조향 중: 원본과 같음 (LFA 2)
+  assert bytes(off)[2:5] == real[2:5] and bytes(off)[5] & 0x80 == 0 and bytes(off)[6] & 0x01 == 0  # 꺼짐: LFA 0

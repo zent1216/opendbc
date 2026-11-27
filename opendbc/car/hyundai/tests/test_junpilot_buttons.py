@@ -82,3 +82,22 @@ def test_ignored_buttons_backoff_pause_and_recover():
   run(f, scc, 80, jb.PAUSE_TIME + 20)
   assert scc.kph == 80
   assert f.status.misses == 0 and f.status.interval == jb.BASE_INTERVAL and not f.status.paused
+
+
+def test_fast_with_slow_cluster():
+  """계기판 반영이 0.8초 늦어도 20km/h를 몇 초 안에 내림 (예전엔 1km/h에 1초 넘게 걸림)."""
+  from opendbc.car.hyundai.junpilot_buttons import JunpilotButtonFollower, MAX_INFLIGHT
+  from opendbc.car.hyundai.values import Buttons
+  f = JunpilotButtonFollower()
+  set_kph, queue, t = 80, [], 0.0
+  for i in range(1000):
+    t = i * 0.01
+    while queue and queue[0][0] <= t:
+      set_kph += queue.pop(0)[1]
+    btn = f.update(60 / 3.6, set_kph / 3.6, True, False, False, False)
+    if btn != Buttons.NONE:
+      queue.append((t + 0.8, 1 if btn == Buttons.RES_ACCEL else -1))
+    assert len(queue) <= MAX_INFLIGHT
+    if set_kph == 60 and not queue:
+      break
+  assert set_kph == 60 and t < 6.0

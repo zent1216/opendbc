@@ -2,8 +2,12 @@
 
 가감속은 계속 순정 SCC가 하고, 여기서는 설정속도만 바꾼다. 긴급제동(AEB)도 그대로다.
 
+빠르게 맞추기:
+  한 번 누르고 계기판에 반영될 때까지(약 1초) 기다리면 1km/h에 1초 넘게 걸려 앞차·끼어들기에 늦는다.
+  그래서 반영을 기다리지 않고 FAST_INTERVAL마다 누르되, 아직 반영 안 된 누름은 MAX_INFLIGHT개까지만 둔다.
+
 무시 감지와 복구:
-  버튼을 보냈는데 계기판 설정속도가 바뀌지 않으면 '무시'로 센다.
+  버튼을 보냈는데 CONFIRM_TIME 동안 계기판 설정속도가 하나도 바뀌지 않으면 '무시'로 센다.
   - 연속 MISS_BACKOFF회: 잠시 멈췄다가 간격을 늘려 다시 시도
   - 연속 MISS_PAUSE회: PAUSE_TIME 동안 자동 조절 중지 (운전자 알림용 상태 노출)
   - 한 번이라도 반영되면 원래 간격으로 복귀
@@ -15,7 +19,8 @@ from opendbc.car.hyundai.values import Buttons
 
 DT_CTRL = 0.01
 
-BASE_INTERVAL = 0.30     # 버튼 누름 간격(초)
+BASE_INTERVAL = 0.15     # 버튼 누름 간격(초)
+MAX_INFLIGHT = 4         # 반영을 기다리는 누름 최대 수
 MAX_INTERVAL = 1.20
 BURST = 5                # 한 번 누를 때 보내는 같은 메시지 수 (실차 로그로 조정 예정)
 CONFIRM_TIME = 1.0       # 누른 뒤 반영을 기다리는 시간(초)
@@ -43,7 +48,8 @@ class JunpilotButtonFollower:
     self.status = FollowerStatus()
     self.t = 0.0
     self.next_press_t = 0.0
-    self.pending: tuple[float, int, int] | None = None  # (누른 시각, 누르기 전 설정속도, 버튼)
+    self.pending: tuple[float, int, int] | None = None  # (마지막 반영 확인 시각, 그때 설정속도, 버튼)
+    self.inflight = 0  # 누르고 아직 반영 안 된 수
     self.paused_until = 0.0
     self.driver_until = 0.0
 
@@ -59,17 +65,20 @@ class JunpilotButtonFollower:
 
     if driver_button:
       self.driver_until = self.t + DRIVER_HOLDOFF
-      self.pending = None
+      self.pending, self.inflight = None, 0
 
-    # 누른 버튼이 반영됐는지 확인
+    # 누른 버튼이 반영됐는지 확인: 설정속도가 누른 방향으로 바뀐 만큼 대기 중 누름을 지움
     if self.pending is not None:
       t0, before, btn = self.pending
-      if cur != before:
-        self.pending = None
+      moved = (cur - before) if btn == Buttons.RES_ACCEL else (before - cur)
+      if moved != 0:
+        self.inflight = max(self.inflight - max(moved, 0), 0)
+        self.pending = (self.t, cur, btn) if self.inflight > 0 else None
         st.misses = 0
         st.interval = BASE_INTERVAL
       elif self.t - t0 > CONFIRM_TIME:
         self.pending = None
+        self.inflight = 0
         st.misses += 1
         if st.misses >= MISS_PAUSE:
           self.paused_until = self.t + PAUSE_TIME
@@ -84,14 +93,24 @@ class JunpilotButtonFollower:
               and self.t >= self.driver_until and cur >= self.min_set)
     st.active = usable and not st.paused
     st.last_button = Buttons.NONE
-    if not st.active or self.pending is not None or self.t < self.next_press_t:
+    if not st.active:
+      self.pending, self.inflight = None, 0
+      return Buttons.NONE
+    if self.t < self.next_press_t or self.inflight >= MAX_INFLIGHT:
       return Buttons.NONE
 
     tgt = max(self._units(target_ms), self.min_set)
-    if tgt == cur:
+    # 이미 누른(반영 대기) 만큼 갔다고 보고 남은 차이만 누름
+    sign = 0 if self.pending is None else (1 if self.pending[2] == Buttons.RES_ACCEL else -1)
+    expected = cur + sign * self.inflight
+    if tgt == expected:
       return Buttons.NONE
-    btn = Buttons.RES_ACCEL if tgt > cur else Buttons.SET_DECEL
-    self.pending = (self.t, cur, btn)
+    btn = Buttons.RES_ACCEL if tgt > expected else Buttons.SET_DECEL
+    if self.pending is not None and btn != self.pending[2]:
+      return Buttons.NONE  # 방향이 바뀌면 앞의 누름이 다 반영된 뒤에
+    if self.pending is None:
+      self.pending = (self.t, cur, btn)
+    self.inflight += 1
     self.next_press_t = self.t + st.interval
     st.last_button = btn
     return btn

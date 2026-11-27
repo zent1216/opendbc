@@ -39,7 +39,8 @@ class CarState(CarStateBase):
     self.pv5_btn_msg = None  # 준파일럿: PV5 0x10B 마지막 값 (버튼 대신 누르기용)
     self.lfa_alt = None  # 준파일럿: 카메라의 각도 조향 요청(LFA_ALT 0xCB) 마지막 값
     self.mdps_frames: list[dict] = []
-    self.ccnc_frames: list[dict] = []  # 준파일럿: 계기판 표시(0x161) 프레임들  # 준파일럿: 이번 주기에 받은 MDPS(0xEA) 프레임들 (카메라로 다시 보냄)
+    self.ccnc_frames: list[dict] = []  # 준파일럿: 계기판 표시(0x161) 프레임들
+    self.lfahda_frames: list[dict] = []  # 준파일럿: 카메라가 보낸 LFA/HDA 아이콘(0x1E0) 프레임들
 
     self.gear_msg_canfd = "ACCELERATOR" if CP.flags & HyundaiFlags.EV else \
                           "GEAR_ALT" if CP.flags & HyundaiFlags.CANFD_ALT_GEARS else \
@@ -321,6 +322,9 @@ class CarState(CarStateBase):
       vc = cp_cam.vl_all["CCNC_0x161"]
       n = len(vc["COUNTER"])
       self.ccnc_frames = [{k: vals[i] for k, vals in vc.items() if len(vals) == n} for i in range(n)]
+      vh = cp_cam.vl_all["LFAHDA_CLUSTER"]
+      n = len(vh["COUNTER"])
+      self.lfahda_frames = [{k: vals[i] for k, vals in vh.items() if len(vals) == n} for i in range(n)]
     if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
       self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x362"] if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT
                                           else cp_cam.vl["CAM_0x2a4"])
@@ -344,7 +348,9 @@ class CarState(CarStateBase):
     if Bus.radar in can_parsers:
       cpr = can_parsers[Bus.radar]
       tracks = [cpr.vl[RADAR_MSG.format(a)] for a in RADAR_ADDRS]
-      ret.junpilotCutInSpeed, ret.junpilotCutInDist = self.jp_cutin.update(tracks, ret.vEgo, DT_CTRL)
+      # 우리 진행 곡률 (조향각 기준): 커브에서 옆 차 가로 위치를 경로 기준으로 보정
+      curv = math.radians(ret.steeringAngleDeg) / max(self.CP.steerRatio, 1.0) / max(self.CP.wheelbase, 1.0)
+      ret.junpilotCutInSpeed, ret.junpilotCutInDist = self.jp_cutin.update(tracks, ret.vEgo, DT_CTRL, curv)
 
     return ret
 
@@ -364,7 +370,8 @@ class CarState(CarStateBase):
     parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, CanBus(CP).ECAN),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt],
-                         [("LFA_ALT", math.nan), ("CCNC_0x161", math.nan)] if CP.flags & HyundaiFlags.ANGLE_CONTROL else [], CanBus(CP).CAM),
+                         [("LFA_ALT", math.nan), ("CCNC_0x161", math.nan), ("LFAHDA_CLUSTER", math.nan)]
+                         if CP.flags & HyundaiFlags.ANGLE_CONTROL else [], CanBus(CP).CAM),
     }
     if pv5:
       parsers[Bus.alt] = CANParser(DBC[CP.carFingerprint][Bus.pt], [(PV5_STATUS_MSG, math.nan)], CanBus(CP).ACAN)

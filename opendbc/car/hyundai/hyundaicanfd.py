@@ -113,9 +113,11 @@ HANDS_OFF_ALERTS = (1, 2, 5, 6, 10, 21, 22)  # CCNC 0x161 ALERTS_2: 핸들 잡�
 
 def create_ccnc_display(packer, CAN, ccnc, lat_active, hud, left_blinker, right_blinker, blink_on):
   """준파일럿: 계기판 표시(CCNC 0x161)에 오픈파일럿이 인식한 차선과 조향 상태를 반영.
-  조향 중일 때만 바꾸고, 나머지(경고·소리·속도·앞차 등)는 카메라 값 그대로."""
+  조향 중일 때만 차선 등을 바꾸고(꺼져 있으면 LFA 아이콘만 끔), 나머지(경고·소리·속도·앞차 등)는 카메라 값 그대로."""
   values = dict(ccnc)
   values.pop("CHECKSUM", None)
+  if not lat_active:
+    values["LFA_ICON"] = 0  # LFA(조향)를 끄면 아이콘도 끔 (카메라는 MDPS 상태를 보고 켜진 줄 앎)
   if lat_active:
     values["LFA_ICON"] = 2
     values["CENTERLINE"] = 1
@@ -182,6 +184,13 @@ def create_acc_cancel(packer, CP, CAN, cruise_info_copy):
     "aReqValue": 0.0,
   })
   return packer.make_can_msg("SCC_CONTROL", CAN.ECAN, values)
+
+
+def create_lfahda_copy(packer, CAN, stock, lat_active):
+  """준파일럿: 카메라의 LFAHDA_CLUSTER(0x1E0)를 그대로 쓰고 LFA 아이콘만 바꿈 (조향 중 초록, 아니면 끔)."""
+  values = {k: v for k, v in stock.items() if k != "CHECKSUM"}
+  values["LFA_ICON"] = 2 if lat_active else 0
+  return packer.make_can_msg("LFAHDA_CLUSTER", CAN.ECAN, values)
 
 
 def create_lfahda_cluster(packer, CAN, enabled):
